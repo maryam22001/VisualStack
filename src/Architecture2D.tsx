@@ -1,8 +1,8 @@
-import React, { useState, useRef } from 'react';
+import React, { useState,useEffect,  useRef } from 'react';
 import { IconPicker } from './IconPicker';
 import type { IconResult } from './IconLibrary';
 import type { VisualStackNode, VisualStackConnector } from './types/project';
-
+import { snapToGrid } from './utils/geometry';
 export interface Architecture2DProps {
   theme?: 'dark' | 'light';
   onToggleTheme?: () => void;
@@ -134,7 +134,22 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
     }
     setScale(newScale);
   };
+// Listen for Escape key to cancel cable wiring or close modals
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (connectingFrom) {
+          e.preventDefault();
+          setConnectingFrom(null);
+        } else if (editingNode) {
+          setEditingNode(null);
+        }
+      }
+    };
 
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [connectingFrom, editingNode]);
   const handleMouseDown = (e: React.MouseEvent) => {
     if (draggedNode || editingNode || connectingFrom) return;
     setIsPanning(true);
@@ -164,7 +179,13 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
 
   const handleMouseUp = () => {
     if (draggedNode) {
-      notifyChange(nodes, connectors);
+      const nextNodes = nodes.map((n) =>
+        n.id === draggedNode.id
+          ? { ...n, x: snapToGrid(n.x), y: snapToGrid(n.y) }
+          : n
+      );
+      setNodes(nextNodes);
+      notifyChange(nextNodes, connectors);
     }
     setIsPanning(false);
     setDraggedNode(null);
@@ -364,6 +385,10 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
         }}
       >
         <defs>
+          <rect x="-5000" y="-5000" width="10000" height="10000" fill="url(#canvas-grid-2d)" />
+          <pattern id="canvas-grid-2d" width="20" height="20" patternUnits="userSpaceOnUse">
+    <circle cx="2" cy="2" r="1.2" fill={isDark ? '#334155' : '#cbd5e1'} opacity="0.6" />
+  </pattern>
           <marker id="arrow-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
             <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#0284c7" />
           </marker>

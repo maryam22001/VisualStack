@@ -1,8 +1,8 @@
-import React, { useState, useRef } from 'react';
+import React, { useState,useEffect, useRef } from 'react';
 import { IconPicker } from './IconPicker';
 import type { IconResult } from './IconLibrary';
 import type { VisualStackCluster, VisualStackNode, VisualStackConnector } from './types/project';
-
+import { snapToGrid } from './utils/geometry';
 export interface CleanArchitectureProps {
   theme?: 'dark' | 'light';
   clusters?: VisualStackCluster[];
@@ -198,6 +198,24 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
     }
     setScale(newScale);
   };
+// Listen for Escape key to cancel active wiring or close modals
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (connectingFrom) {
+          e.preventDefault();
+          setConnectingFrom(null);
+        } else if (editingNode) {
+          setEditingNode(null);
+        } else if (editingCluster) {
+          setEditingCluster(null);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [connectingFrom, editingNode, editingCluster]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (draggedNode || draggedCluster || editingNode || editingCluster || connectingFrom) return;
@@ -232,8 +250,22 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
   };
 
   const handleMouseUp = () => {
-    if (draggedNode || draggedCluster) {
-      notifyChange(clusters, nodes, connectors);
+    if (draggedNode) {
+      const nextNodes = nodes.map((n) =>
+        n.id === draggedNode.id
+          ? { ...n, x: snapToGrid(n.x), y: snapToGrid(n.y) }
+          : n
+      );
+      setNodes(nextNodes);
+      notifyChange(clusters, nextNodes, connectors);
+    } else if (draggedCluster) {
+      const nextClusters = clusters.map((c) =>
+        c.id === draggedCluster.id
+          ? { ...c, x: snapToGrid(c.x), y: snapToGrid(c.y) }
+          : c
+      );
+      setClusters(nextClusters);
+      notifyChange(nextClusters, nodes, connectors);
     }
     setIsPanning(false);
     setDraggedNode(null);
@@ -494,6 +526,11 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
         }}
       >
         <defs>
+          {/* Background Grid */}
+  <rect x="-5000" y="-5000" width="10000" height="10000" fill="url(#canvas-grid-dots)" />
+          <pattern id="canvas-grid-dots" width="20" height="20" patternUnits="userSpaceOnUse">
+    <circle cx="2" cy="2" r="1.2" fill={isDark ? '#334155' : '#cbd5e1'} opacity="0.6" />
+  </pattern>
           <marker id="clean-arr-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
             <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#0284c7" />
           </marker>

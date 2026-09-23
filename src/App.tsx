@@ -2,9 +2,17 @@ import { useState, useEffect, useRef, type ComponentType } from 'react';
 import * as IsoflowModule from 'isoflow';
 import { Architecture2D } from './Architecture2D';
 import { CleanArchitectureView } from './CleanArchitectureView';
-import { initialData } from './stackData';
-import { loadSavedProject, saveProjectToStorage, exportProjectAsJSON } from './utils/storage';
+import {
+  loadSavedProject,
+  saveProjectToStorage,
+  exportProjectAsJSON,
+  encodeProjectToHash,
+  decodeProjectFromHash,
+  exportSvgToPng
+} from './utils/storage';
 import type { VisualStackProject } from './types/project';
+import { convertProjectToIsoflowData } from './utils/isoflowAdapter';
+import { useProjectHistory } from './utils/useProjectHistory';
 
 // Safely resolve Isoflow component export across Vite ESM/CJS boundaries
 const getIsoflowComponent = (): ComponentType<Record<string, unknown>> => {
@@ -13,68 +21,101 @@ const getIsoflowComponent = (): ComponentType<Record<string, unknown>> => {
   if (typeof mod.default === 'function') return mod.default as ComponentType<Record<string, unknown>>;
   const def = mod.default as Record<string, unknown> | undefined;
   if (def && typeof def.default === 'function') return def.default as ComponentType<Record<string, unknown>>;
-  if (def && typeof def.Isoflow === 'function') return def.Isoflow as ComponentType<Record<string, unknown>>;
-  // Safe fallback component if module failed to extract
-  return () => (
-    <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>
-      Isoflow 3D viewer is loading or unavailable.
-    </div>
-  );
+  return () => <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>Isoflow unavailable</div>;
 };
 
 const IsoflowComponent = getIsoflowComponent();
 
 export default function App() {
-  const [project, setProject] = useState<VisualStackProject>(loadSavedProject);
+  // Load from URL hash if available; otherwise fall back to localStorage
+  const initialProjectState = () => {
+  const fromUrl = decodeProjectFromHash();
+  if (fromUrl) return fromUrl;
+  return loadSavedProject();
+};
+
+const {
+  project,
+  updateProject: historyUpdateProject,
+  setProjectDirect,
+  undo,
+  redo,
+  canUndo,
+  canRedo
+} = useProjectHistory(initialProjectState());
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving'>('saved');
   const [theme, setTheme] = useState<'dark' | 'light'>('light');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Auto-save on changes without synchronous setState inside the effect body
-  const isFirstRender = useRef(true);
-
+  // Auto-save & sync state
+// Global Shortcut listener for Undo (Ctrl+Z) & Redo (Ctrl+Y / Ctrl+Shift+Z)
   useEffect(() => {
-    if (isFirstRender.current) {
-      isFirstRender.current = false;
-      return;
-    }
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      const isInput =
+        activeEl instanceof HTMLInputElement ||
+        activeEl instanceof HTMLTextAreaElement ||
+        activeEl?.getAttribute('contenteditable') === 'true';
 
-    const timer = setTimeout(() => {
-      saveProjectToStorage(project);
-      setSaveStatus('saved');
-    }, 600);
+      if (isInput) return;
 
-    return () => clearTimeout(timer);
-  }, [project]);
+      const isModifier = e.ctrlKey || e.metaKey;
+
+      if (isModifier && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          redo();
+        } else {
+          undo();
+        }
+      } else if (isModifier && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        redo();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
+  }, [undo, redo]);
 
   const updateProject = (updater: (prev: VisualStackProject) => VisualStackProject) => {
     setSaveStatus('saving');
-    setProject(updater);
+    historyUpdateProject(updater);
   };
-    
 
   const updateTitle = (newTitle: string) => {
-    setProject((prev) => ({ ...prev, title: newTitle }));
+    updateProject((prev) => ({ ...prev, title: newTitle }));
   };
 
-  const handleImportJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const parsed = JSON.parse(event.target?.result as string);
-        if (parsed.title && (parsed.cleanView || parsed.detailed2DView)) {
-          setProject(parsed);
-          saveProjectToStorage(parsed);
-        } else {
-          alert('Invalid VisualStack design file format.');
-        }
-      } catch {
-        alert('Failed to parse JSON file.');
-      }
-    };
-    reader.readAsText(file);
+  // Copy shareable link
+  const handleCopyShareLink = () => {
+    const hash = encodeProjectToHash(project);
+    const fullUrl = `${window.location.origin}${window.location.pathname}${hash}`;
+    navigator.clipboard.writeText(fullUrl).then(() => {
+      alert('Shareable link copied to clipboard!');
+    });
+  };
+
+  // PNG Export Handler
+  const handleExportPng = (copyToClipboard = false) => {
+    let selector = '#aegisot-clean-svg';
+    let filename = `${project.title.toLowerCase().replace(/\s+/g, '-')}-clean.png`;
+
+    if (project.activeTab === '2d') {
+      selector = '#aegisot-2d-svg';
+      filename = `${project.title.toLowerCase().replace(/\s+/g, '-')}-2d.png`;
+    } else if (project.activeTab === '3d') {
+      selector = 'svg';
+      filename = `${project.title.toLowerCase().replace(/\s+/g, '-')}-3d.png`;
+    }
+
+    const svgEl = document.querySelector(selector) as SVGElement | null;
+    if (!svgEl) {
+      alert('No SVG element detected for export.');
+      return;
+    }
+
+    exportSvgToPng(svgEl, filename, copyToClipboard);
   };
 
   const exportCurrentSvg = () => {
@@ -108,6 +149,25 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
+ const handleImportJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (event) => {
+    try {
+      const parsed = JSON.parse(event.target?.result as string);
+      if (parsed.title && (parsed.cleanView || parsed.detailed2DView)) {
+        setProjectDirect(parsed);
+        saveProjectToStorage(parsed);
+      } else {
+        alert('Invalid VisualStack design file format.');
+      }
+    } catch {
+      alert('Failed to parse JSON file.');
+    }
+  };
+  reader.readAsText(file);
+};
   const isDark = theme === 'dark';
 
   return (
@@ -122,7 +182,7 @@ export default function App() {
         overflow: 'hidden'
       }}
     >
-      {/* Top Application Header */}
+      {/* Top Header */}
       <header
         style={{
           height: '56px',
@@ -136,8 +196,8 @@ export default function App() {
           flexShrink: 0
         }}
       >
-        {/* Brand & Editable Design Title */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+        {/* Title */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <span style={{ fontSize: '18px', fontWeight: '800', color: '#0284c7' }}>
             VisualStack
           </span>
@@ -146,7 +206,6 @@ export default function App() {
             type="text"
             value={project.title}
             onChange={(e) => updateTitle(e.target.value)}
-            title="Click to rename design"
             style={{
               fontSize: '14px',
               fontWeight: '600',
@@ -156,17 +215,15 @@ export default function App() {
               background: 'transparent',
               color: isDark ? '#f8fafc' : '#0f172a',
               outline: 'none',
-              maxWidth: '220px'
+              maxWidth: '200px'
             }}
-            onFocus={(e) => (e.target.style.borderColor = '#0284c7')}
-            onBlur={(e) => (e.target.style.borderColor = 'transparent')}
           />
-          <span style={{ fontSize: '11px', color: saveStatus === 'saving' ? '#d97706' : '#16a34a', fontWeight: '500' }}>
+          <span style={{ fontSize: '11px', color: saveStatus === 'saving' ? '#d97706' : '#16a34a' }}>
             {saveStatus === 'saving' ? '● Saving...' : '✓ Saved'}
           </span>
         </div>
 
-        {/* View Mode Switcher */}
+        {/* Tab Switcher */}
         <div
           style={{
             display: 'flex',
@@ -180,7 +237,7 @@ export default function App() {
           {(['clean', '2d', '3d'] as const).map((tab) => (
             <button
               key={tab}
-              onClick={() => setProject((prev) => ({ ...prev, activeTab: tab }))}
+              onClick={() => updateProject((prev) => ({ ...prev, activeTab: tab }))}
               style={{
                 padding: '6px 14px',
                 borderRadius: '6px',
@@ -197,7 +254,7 @@ export default function App() {
           ))}
         </div>
 
-        {/* Storage Actions, Theme & Export */}
+        {/* Action Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <input
             type="file"
@@ -208,7 +265,55 @@ export default function App() {
           />
 
           <button
-            onClick={() => fileInputRef.current?.click()}
+            onClick={handleCopyShareLink}
+            style={{
+              background: '#0284c7',
+              color: '#fff',
+              border: 'none',
+              padding: '6px 12px',
+              borderRadius: '6px',
+              fontSize: '12px',
+              fontWeight: '600',
+              cursor: 'pointer'
+            }}
+          >
+            🔗 Share Link
+          </button>
+
+          <button
+            onClick={() => handleExportPng(false)}
+            style={{
+              background: '#10b981',
+              color: '#fff',
+              border: 'none',
+              padding: '6px 12px',
+              borderRadius: '6px',
+              fontSize: '12px',
+              fontWeight: '600',
+              cursor: 'pointer'
+            }}
+          >
+            Export PNG
+          </button>
+
+          <button
+            onClick={() => handleExportPng(true)}
+            title="Copy high-res image to clipboard"
+            style={{
+              background: isDark ? '#334155' : '#e2e8f0',
+              color: isDark ? '#f8fafc' : '#0f172a',
+              border: 'none',
+              padding: '6px 10px',
+              borderRadius: '6px',
+              fontSize: '12px',
+              cursor: 'pointer'
+            }}
+          >
+            📋 Copy Image
+          </button>
+
+          <button
+            onClick={exportCurrentSvg}
             style={{
               background: 'transparent',
               border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
@@ -219,7 +324,7 @@ export default function App() {
               cursor: 'pointer'
             }}
           >
-            Import JSON
+            Export SVG
           </button>
 
           <button
@@ -234,7 +339,7 @@ export default function App() {
               cursor: 'pointer'
             }}
           >
-            Save JSON
+            JSON
           </button>
 
           <button
@@ -251,26 +356,49 @@ export default function App() {
           >
             {isDark ? '☀️' : '🌙'}
           </button>
-
-          <button
-            onClick={exportCurrentSvg}
-            style={{
-              background: '#10b981',
-              color: '#ffffff',
-              border: 'none',
-              padding: '6px 14px',
-              borderRadius: '6px',
-              fontWeight: '600',
-              fontSize: '12px',
-              cursor: 'pointer'
-            }}
-          >
-            Export SVG
-          </button>
         </div>
+        {/* Undo / Redo HUD */}
+<div style={{ display: 'flex', gap: '4px' }}>
+  <button
+    onClick={undo}
+    disabled={!canUndo}
+    title="Undo (Ctrl + Z)"
+    style={{
+      background: isDark ? '#334155' : '#e2e8f0',
+      color: isDark ? '#f8fafc' : '#0f172a',
+      border: 'none',
+      borderRadius: '6px',
+      padding: '6px 10px',
+      fontSize: '12px',
+      fontWeight: 'bold',
+      cursor: canUndo ? 'pointer' : 'not-allowed',
+      opacity: canUndo ? 1 : 0.4
+    }}
+  >
+    ↩
+  </button>
+  <button
+    onClick={redo}
+    disabled={!canRedo}
+    title="Redo (Ctrl + Y)"
+    style={{
+      background: isDark ? '#334155' : '#e2e8f0',
+      color: isDark ? '#f8fafc' : '#0f172a',
+      border: 'none',
+      borderRadius: '6px',
+      padding: '6px 10px',
+      fontSize: '12px',
+      fontWeight: 'bold',
+      cursor: canRedo ? 'pointer' : 'not-allowed',
+      opacity: canRedo ? 1 : 0.4
+    }}
+  >
+    ↪
+  </button>
+</div>
       </header>
 
-      {/* Main Canvas Workspace */}
+      {/* Main Workspace */}
       <main style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
         {project.activeTab === 'clean' && (
           <CleanArchitectureView
@@ -299,9 +427,15 @@ export default function App() {
             }
           />
         )}
-        {project.activeTab === '3d' && (
+       {project.activeTab === '3d' && (
           <div style={{ width: '100%', height: '100%' }}>
-            <IsoflowComponent initialData={initialData} editorMode="EDITABLE" width="100%" height="100%" />
+            <IsoflowComponent
+              key={`${project.updatedAt}-${project.cleanView.nodes.length}`}
+              initialData={convertProjectToIsoflowData(project)}
+              editorMode="EDITABLE"
+              width="100%"
+              height="100%"
+            />
           </div>
         )}
       </main>
