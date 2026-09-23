@@ -1,7 +1,10 @@
-import { useState, type ComponentType } from 'react';
+import { useState, useEffect, useRef, type ComponentType } from 'react';
 import * as IsoflowModule from 'isoflow';
 import { Architecture2D } from './Architecture2D';
 import { CleanArchitectureView } from './CleanArchitectureView';
+import { initialData } from './stackData';
+import { loadSavedProject, saveProjectToStorage, exportProjectAsJSON } from './utils/storage';
+import type { VisualStackProject } from './types/project';
 
 const rawModule = IsoflowModule as Record<string, unknown>;
 const nestedDefault = rawModule.default as Record<string, unknown> | undefined;
@@ -11,109 +14,69 @@ const IsoflowComponent: ComponentType<Record<string, unknown>> =
   (rawModule.default as ComponentType<Record<string, unknown>>) ||
   (rawModule as unknown as ComponentType<Record<string, unknown>>);
 
-const fallbackIcons = [
-  {
-    id: 'icon-device',
-    name: 'Device',
-    url: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><polygon points="50 15, 85 35, 50 55, 15 35" fill="%2300A8CC"/><polygon points="15 35, 50 55, 50 85, 15 65" fill="%231A5164"/><polygon points="85 35, 50 55, 50 85, 85 65" fill="%23133B49"/></svg>',
-    isIsometric: true
-  },
-  {
-    id: 'icon-server',
-    name: 'Server',
-    url: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><polygon points="50 15, 85 35, 50 55, 15 35" fill="%23E67E22"/><polygon points="15 35, 50 55, 50 85, 15 65" fill="%23D35400"/><polygon points="85 35, 50 55, 50 85, 85 65" fill="%23A04000"/></svg>',
-    isIsometric: true
-  }
-];
-
-const colors = [
-  { id: 'c-cyan', value: '#00A8CC' },
-  { id: 'c-teal', value: '#1A5164' },
-  { id: 'c-amber', value: '#E67E22' },
-  { id: 'c-gray', value: '#7F8C8D' }
-];
-
-const items = [
-  { id: 'item-esp32', name: 'ESP32 & Sensors', icon: 'icon-device' },
-  { id: 'item-ztp', name: 'ZTP & GNS3', icon: 'icon-server' },
-  { id: 'item-mosquitto', name: 'Mosquitto MQTT', icon: 'icon-server' },
-  { id: 'item-laravel', name: 'Laravel API', icon: 'icon-server' },
-  { id: 'item-timescale', name: 'TimescaleDB', icon: 'icon-server' },
-  { id: 'item-ai', name: 'LangGraph Agents', icon: 'icon-server' },
-  { id: 'item-ui', name: 'Vue & Flutter UI', icon: 'icon-device' }
-];
-
-const initialData = {
-  title: 'AegisOT 5-Layer Architecture',
-  fitToScreen: true,
-  icons: fallbackIcons,
-  colors,
-  items,
-  views: [
-    {
-      id: 'main-view',
-      name: 'Architecture View',
-      items: [
-        { id: 'item-esp32', tile: { x: 0, y: 0 } },
-        { id: 'item-ztp', tile: { x: 3, y: -2 } },
-        { id: 'item-mosquitto', tile: { x: 5, y: 0 } },
-        { id: 'item-laravel', tile: { x: 8, y: 0 } },
-        { id: 'item-timescale', tile: { x: 8, y: 3 } },
-        { id: 'item-ai', tile: { x: 11, y: 1 } },
-        { id: 'item-ui', tile: { x: 14, y: 0 } }
-      ],
-      connectors: [
-        {
-          id: 'conn-1',
-          style: 'SOLID' as const,
-          color: 'c-cyan',
-          anchors: [{ id: 'a1', ref: { item: 'item-esp32' } }, { id: 'a2', ref: { item: 'item-mosquitto' } }]
-        },
-        {
-          id: 'conn-2',
-          style: 'SOLID' as const,
-          color: 'c-cyan',
-          anchors: [{ id: 'a3', ref: { item: 'item-mosquitto' } }, { id: 'a4', ref: { item: 'item-laravel' } }]
-        },
-        {
-          id: 'conn-3',
-          style: 'SOLID' as const,
-          color: 'c-teal',
-          anchors: [{ id: 'a5', ref: { item: 'item-laravel' } }, { id: 'a6', ref: { item: 'item-timescale' } }]
-        },
-        {
-          id: 'conn-4',
-          style: 'SOLID' as const,
-          color: 'c-amber',
-          anchors: [{ id: 'a7', ref: { item: 'item-laravel' } }, { id: 'a8', ref: { item: 'item-ai' } }]
-        },
-        {
-          id: 'conn-5',
-          style: 'SOLID' as const,
-          color: 'c-cyan',
-          anchors: [{ id: 'a9', ref: { item: 'item-laravel' } }, { id: 'a10', ref: { item: 'item-ui' } }]
-        }
-      ]
-    }
-  ]
-};
-
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'2d' | 'clean' | '3d'>('clean');
+  const [project, setProject] = useState<VisualStackProject>(loadSavedProject);
+  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving'>('saved');
   const [theme, setTheme] = useState<'dark' | 'light'>('light');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const toggleTheme = () => setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
+  // Auto-save on changes without synchronous setState inside the effect body
+  const isFirstRender = useRef(true);
+
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      saveProjectToStorage(project);
+      setSaveStatus('saved');
+    }, 600);
+
+    return () => clearTimeout(timer);
+  }, [project]);
+
+  const updateProject = (updater: (prev: VisualStackProject) => VisualStackProject) => {
+    setSaveStatus('saving');
+    setProject(updater);
+  };
+    
+
+  const updateTitle = (newTitle: string) => {
+    setProject((prev) => ({ ...prev, title: newTitle }));
+  };
+
+  const handleImportJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const parsed = JSON.parse(event.target?.result as string);
+        if (parsed.title && (parsed.cleanView || parsed.detailed2DView)) {
+          setProject(parsed);
+          saveProjectToStorage(parsed);
+        } else {
+          alert('Invalid VisualStack design file format.');
+        }
+      } catch {
+        alert('Failed to parse JSON file.');
+      }
+    };
+    reader.readAsText(file);
+  };
 
   const exportCurrentSvg = () => {
     let selector = '#aegisot-clean-svg';
-    let file = 'aegisot-clean-diagram.svg';
+    let filename = `${project.title.toLowerCase().replace(/\s+/g, '-')}-clean.svg`;
 
-    if (activeTab === '2d') {
+    if (project.activeTab === '2d') {
       selector = '#aegisot-2d-svg';
-      file = 'aegisot-2d-architecture.svg';
-    } else if (activeTab === '3d') {
+      filename = `${project.title.toLowerCase().replace(/\s+/g, '-')}-2d.svg`;
+    } else if (project.activeTab === '3d') {
       selector = 'svg';
-      file = 'aegisot-3d-isometric.svg';
+      filename = `${project.title.toLowerCase().replace(/\s+/g, '-')}-3d.svg`;
     }
 
     const svgEl = document.querySelector(selector) as SVGElement | null;
@@ -126,27 +89,30 @@ export default function App() {
     const source = serializer.serializeToString(svgEl);
     const blob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = file;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    const downloadLink = document.createElement('a');
+    downloadLink.href = url;
+    downloadLink.download = filename;
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    document.body.removeChild(downloadLink);
     URL.revokeObjectURL(url);
   };
 
   const isDark = theme === 'dark';
 
   return (
-    <div style={{
-      width: '100vw',
-      height: '100vh',
-      display: 'flex',
-      flexDirection: 'column',
-      background: isDark ? '#0f172a' : '#f8fafc',
-      color: isDark ? '#f8fafc' : '#0f172a'
-    }}>
-      {/* Header Bar */}
+    <div
+      style={{
+        width: '100vw',
+        height: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        background: isDark ? '#0f172a' : '#f8fafc',
+        color: isDark ? '#f8fafc' : '#0f172a',
+        overflow: 'hidden'
+      }}
+    >
+      {/* Top Application Header */}
       <header
         style={{
           height: '56px',
@@ -155,93 +121,125 @@ export default function App() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '0 20px',
-          zIndex: 100
+          padding: '0 16px',
+          zIndex: 100,
+          flexShrink: 0
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        {/* Brand & Editable Design Title */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
           <span style={{ fontSize: '18px', fontWeight: '800', color: '#0284c7' }}>
-            AegisOT
+            VisualStack
           </span>
-          <span style={{ fontSize: '13px', color: isDark ? '#94a3b8' : '#64748b' }}>
-            Architecture Studio
+          <span style={{ color: isDark ? '#475569' : '#cbd5e1' }}>/</span>
+          <input
+            type="text"
+            value={project.title}
+            onChange={(e) => updateTitle(e.target.value)}
+            title="Click to rename design"
+            style={{
+              fontSize: '14px',
+              fontWeight: '600',
+              padding: '4px 8px',
+              borderRadius: '6px',
+              border: '1px solid transparent',
+              background: 'transparent',
+              color: isDark ? '#f8fafc' : '#0f172a',
+              outline: 'none',
+              maxWidth: '220px'
+            }}
+            onFocus={(e) => (e.target.style.borderColor = '#0284c7')}
+            onBlur={(e) => (e.target.style.borderColor = 'transparent')}
+          />
+          <span style={{ fontSize: '11px', color: saveStatus === 'saving' ? '#d97706' : '#16a34a', fontWeight: '500' }}>
+            {saveStatus === 'saving' ? '● Saving...' : '✓ Saved'}
           </span>
         </div>
 
-        {/* 3-View Segment Control */}
+        {/* View Mode Switcher */}
         <div
           style={{
             display: 'flex',
             background: isDark ? '#0f172a' : '#f1f5f9',
-            padding: '4px',
+            padding: '3px',
             borderRadius: '8px',
             border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
             gap: '4px'
           }}
         >
-          <button
-            onClick={() => setActiveTab('clean')}
-            style={{
-              padding: '6px 14px',
-              borderRadius: '6px',
-              border: 'none',
-              cursor: 'pointer',
-              fontWeight: '600',
-              fontSize: '13px',
-              background: activeTab === 'clean' ? '#0284c7' : 'transparent',
-              color: activeTab === 'clean' ? '#ffffff' : (isDark ? '#94a3b8' : '#64748b')
-            }}
-          >
-            Clean Diagram
-          </button>
-          <button
-            onClick={() => setActiveTab('2d')}
-            style={{
-              padding: '6px 14px',
-              borderRadius: '6px',
-              border: 'none',
-              cursor: 'pointer',
-              fontWeight: '600',
-              fontSize: '13px',
-              background: activeTab === '2d' ? '#0284c7' : 'transparent',
-              color: activeTab === '2d' ? '#ffffff' : (isDark ? '#94a3b8' : '#64748b')
-            }}
-          >
-            Detailed 2D View
-          </button>
-          <button
-            onClick={() => setActiveTab('3d')}
-            style={{
-              padding: '6px 14px',
-              borderRadius: '6px',
-              border: 'none',
-              cursor: 'pointer',
-              fontWeight: '600',
-              fontSize: '13px',
-              background: activeTab === '3d' ? '#0284c7' : 'transparent',
-              color: activeTab === '3d' ? '#ffffff' : (isDark ? '#94a3b8' : '#64748b')
-            }}
-          >
-            3D Isometric
-          </button>
+          {(['clean', '2d', '3d'] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setProject((prev) => ({ ...prev, activeTab: tab }))}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '6px',
+                border: 'none',
+                cursor: 'pointer',
+                fontWeight: '600',
+                fontSize: '12px',
+                background: project.activeTab === tab ? '#0284c7' : 'transparent',
+                color: project.activeTab === tab ? '#ffffff' : isDark ? '#94a3b8' : '#64748b'
+              }}
+            >
+              {tab === 'clean' ? 'Clean Diagram' : tab === '2d' ? 'Detailed 2D View' : '3D Isometric'}
+            </button>
+          ))}
         </div>
 
-        {/* Action Controls */}
+        {/* Storage Actions, Theme & Export */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <input
+            type="file"
+            ref={fileInputRef}
+            accept=".json"
+            onChange={handleImportJSON}
+            style={{ display: 'none' }}
+          />
+
           <button
-            onClick={toggleTheme}
+            onClick={() => fileInputRef.current?.click()}
+            style={{
+              background: 'transparent',
+              border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
+              color: isDark ? '#cbd5e1' : '#475569',
+              padding: '6px 10px',
+              borderRadius: '6px',
+              fontSize: '12px',
+              cursor: 'pointer'
+            }}
+          >
+            Import JSON
+          </button>
+
+          <button
+            onClick={() => exportProjectAsJSON(project)}
+            style={{
+              background: 'transparent',
+              border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
+              color: isDark ? '#cbd5e1' : '#475569',
+              padding: '6px 10px',
+              borderRadius: '6px',
+              fontSize: '12px',
+              cursor: 'pointer'
+            }}
+          >
+            Save JSON
+          </button>
+
+          <button
+            onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
             style={{
               background: isDark ? '#334155' : '#e2e8f0',
               color: isDark ? '#f8fafc' : '#0f172a',
               border: 'none',
-              padding: '8px 12px',
+              padding: '6px 10px',
               borderRadius: '6px',
-              fontWeight: '600',
-              fontSize: '13px',
+              fontSize: '12px',
               cursor: 'pointer'
             }}
           >
-            {isDark ? '☀️ Light' : '🌙 Dark'}
+            {isDark ? '☀️' : '🌙'}
           </button>
 
           <button
@@ -250,30 +248,63 @@ export default function App() {
               background: '#10b981',
               color: '#ffffff',
               border: 'none',
-              padding: '8px 16px',
+              padding: '6px 14px',
               borderRadius: '6px',
               fontWeight: '600',
-              fontSize: '13px',
+              fontSize: '12px',
               cursor: 'pointer'
             }}
           >
-            Export Active View (SVG)
+            Export SVG
           </button>
         </div>
       </header>
 
-      {/* Main Canvas Viewport */}
+      {/* Main Canvas Workspace */}
       <main style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-        {activeTab === 'clean' && <CleanArchitectureView theme={theme} />}
-        {activeTab === '2d' && <Architecture2D theme={theme} onToggleTheme={toggleTheme} />}
-        {activeTab === '3d' && (
+       {project.activeTab === 'clean' && (
+          <CleanArchitectureView
+            theme={theme}
+            clusters={project.cleanView.clusters}
+            nodes={project.cleanView.nodes}
+            connectors={project.cleanView.connectors}
+            onChange={(data: VisualStackProject['cleanView']) =>
+              updateProject((prev) => ({
+                ...prev,
+                cleanView: data
+              }))
+            }
+          />
+        )}
+        {project.activeTab === '2d' && (
+          <Architecture2D
+            theme={theme}
+            nodes={project.detailed2DView.nodes}
+            connectors={project.detailed2DView.connectors}
+            onChange={(data: VisualStackProject['detailed2DView']) =>
+              updateProject((prev) => ({
+                ...prev,
+                detailed2DView: data
+              }))
+            }
+          />
+        )}
+        {project.activeTab === '2d' && (
+          <Architecture2D
+            theme={theme}
+            nodes={project.detailed2DView.nodes}
+            connectors={project.detailed2DView.connectors}
+            onChange={(data) =>
+              setProject((prev) => ({
+                ...prev,
+                detailed2DView: data
+              }))
+            }
+          />
+        )}
+        {project.activeTab === '3d' && (
           <div style={{ width: '100%', height: '100%' }}>
-            <IsoflowComponent
-              initialData={initialData}
-              editorMode="EDITABLE"
-              width="100%"
-              height="100%"
-            />
+            <IsoflowComponent initialData={initialData} editorMode="EDITABLE" width="100%" height="100%" />
           </div>
         )}
       </main>

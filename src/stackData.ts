@@ -1,23 +1,24 @@
+import { flattenCollections } from '@isoflow/isopacks/dist/utils';
+import isoflowIsopack from '@isoflow/isopacks/dist/isoflow';
+import awsIsopack from '@isoflow/isopacks/dist/aws';
+import gcpIsopack from '@isoflow/isopacks/dist/gcp';
+import azureIsopack from '@isoflow/isopacks/dist/azure';
+import kubernetesIsopack from '@isoflow/isopacks/dist/kubernetes';
+
 export interface ArchitectureItem {
   id: string;
   name: string;
   icon: string;
 }
 
-export const fallbackIcons = [
-  {
-    id: 'icon-device',
-    name: 'Device',
-    url: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><polygon points="50 15, 85 35, 50 55, 15 35" fill="%2300A8CC"/><polygon points="15 35, 50 55, 50 85, 15 65" fill="%231A5164"/><polygon points="85 35, 50 55, 50 85, 85 65" fill="%23133B49"/></svg>',
-    isIsometric: true
-  },
-  {
-    id: 'icon-server',
-    name: 'Server',
-    url: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><polygon points="50 15, 85 35, 50 55, 15 35" fill="%23E67E22"/><polygon points="15 35, 50 55, 50 85, 15 65" fill="%23D35400"/><polygon points="85 35, 50 55, 50 85, 85 65" fill="%23A04000"/></svg>',
-    isIsometric: true
-  }
-];
+// Flatten all bundled collections into a single icon registry
+export const allIcons = flattenCollections([
+  isoflowIsopack,
+  awsIsopack,
+  gcpIsopack,
+  azureIsopack,
+  kubernetesIsopack
+]);
 
 export const colors = [
   { id: 'c-cyan', value: '#00A8CC' },
@@ -27,19 +28,19 @@ export const colors = [
 ];
 
 export const items: ArchitectureItem[] = [
-  { id: 'item-esp32', name: 'ESP32 & Sensors', icon: 'icon-device' },
-  { id: 'item-ztp', name: 'ZTP & GNS3', icon: 'icon-server' },
-  { id: 'item-mosquitto', name: 'Mosquitto MQTT', icon: 'icon-server' },
-  { id: 'item-laravel', name: 'Laravel API', icon: 'icon-server' },
-  { id: 'item-timescale', name: 'TimescaleDB', icon: 'icon-server' },
-  { id: 'item-ai', name: 'LangGraph Agents', icon: 'icon-server' },
-  { id: 'item-ui', name: 'Vue & Flutter UI', icon: 'icon-device' }
+  { id: 'item-esp32', name: 'ESP32 & Sensors', icon: 'server' },
+  { id: 'item-ztp', name: 'ZTP & GNS3', icon: 'server' },
+  { id: 'item-mosquitto', name: 'Mosquitto MQTT', icon: 'server' },
+  { id: 'item-laravel', name: 'Laravel API', icon: 'server' },
+  { id: 'item-timescale', name: 'TimescaleDB', icon: 'server' },
+  { id: 'item-ai', name: 'LangGraph Agents', icon: 'server' },
+  { id: 'item-ui', name: 'Vue & Flutter UI', icon: 'server' }
 ];
 
 export const initialData = {
   title: 'AegisOT 5-Layer Architecture',
   fitToScreen: true,
-  icons: fallbackIcons,
+  icons: allIcons,
   colors,
   items,
   views: [

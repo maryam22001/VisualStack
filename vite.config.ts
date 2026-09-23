@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig({
-  base:'/System-Architecture-by-isoflow',
+ 
   plugins: [react()],
   define: {
     // Polyfill process.env so Isoflow's internal webpack bundle doesn't choke
