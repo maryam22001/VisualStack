@@ -1,8 +1,9 @@
-import React, { useState,useEffect, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { IconPicker } from './IconPicker';
 import type { IconResult } from './IconLibrary';
 import type { VisualStackCluster, VisualStackNode, VisualStackConnector } from './types/project';
 import { snapToGrid } from './utils/geometry';
+
 export interface CleanArchitectureProps {
   theme?: 'dark' | 'light';
   clusters?: VisualStackCluster[];
@@ -137,6 +138,57 @@ const defaultConnectors: VisualStackConnector[] = [
   { id: 'c-6', from: 'n-orchestrator', to: 'n-redis', label: 'Session Cache', color: '#dc2626', dashed: true }
 ];
 
+function SafeSvgIcon({
+  url,
+  x,
+  y,
+  size,
+  fallbackLabel,
+  color = '#0284c7'
+}: {
+  url?: string;
+  x: number;
+  y: number;
+  size: number;
+  fallbackLabel: string;
+  color?: string;
+}) {
+  const [hasError, setHasError] = useState(false);
+
+  if (!url || hasError) {
+    return (
+      <g transform={`translate(${x}, ${y})`}>
+        <rect width={size} height={size} rx={size * 0.25} fill={color} opacity={0.15} />
+        <text
+          x={size / 2}
+          y={size * 0.68}
+          fontSize={size * 0.45}
+          fontWeight="700"
+          fontFamily="system-ui, sans-serif"
+          fill={color}
+          textAnchor="middle"
+        >
+          {fallbackLabel.charAt(0).toUpperCase()}
+        </text>
+      </g>
+    );
+  }
+
+  return (
+    <image
+      href={url}
+     
+      xlinkHref={url}
+      x={x}
+      y={y}
+      width={size}
+      height={size}
+      preserveAspectRatio="xMidYMid meet"
+      onError={() => setHasError(true)}
+    />
+  );
+}
+
 export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
   theme = 'light',
   clusters: propClusters,
@@ -144,9 +196,45 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
   connectors: propConnectors,
   onChange
 }) => {
-  const [clusters, setClusters] = useState<VisualStackCluster[]>(propClusters || defaultClusters);
-  const [nodes, setNodes] = useState<VisualStackNode[]>(propNodes || defaultNodes);
-  const [connectors, setConnectors] = useState<VisualStackConnector[]>(propConnectors || defaultConnectors);
+  const [internalClusters, setInternalClusters] = useState<VisualStackCluster[]>(defaultClusters);
+  const [internalNodes, setInternalNodes] = useState<VisualStackNode[]>(defaultNodes);
+  const [internalConnectors, setInternalConnectors] = useState<VisualStackConnector[]>(defaultConnectors);
+
+  const clusters = propClusters ?? internalClusters;
+  const nodes = propNodes ?? internalNodes;
+  const connectors = propConnectors ?? internalConnectors;
+
+  const notifyChange = useCallback((
+    nextClusters = clusters,
+    nextNodes = nodes,
+    nextConnectors = connectors
+  ) => {
+    if (onChange) {
+      onChange({ clusters: nextClusters, nodes: nextNodes, connectors: nextConnectors });
+    } else {
+      setInternalClusters(nextClusters);
+      setInternalNodes(nextNodes);
+      setInternalConnectors(nextConnectors);
+    }
+  }, [clusters, nodes, connectors, onChange]);
+
+  const setClusters = (action: React.SetStateAction<VisualStackCluster[]>) => {
+    const next = typeof action === 'function' ? action(clusters) : action;
+    notifyChange(next, nodes, connectors);
+  };
+
+  const setNodes = (action: React.SetStateAction<VisualStackNode[]>) => {
+    const next = typeof action === 'function' ? action(nodes) : action;
+    notifyChange(clusters, next, connectors);
+  };
+
+  const setConnectors = (action: React.SetStateAction<VisualStackConnector[]>) => {
+    const next = typeof action === 'function' ? action(connectors) : action;
+    notifyChange(clusters, nodes, next);
+  };
+
+  // Selection state
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   // Viewport Pan / Zoom
   const [scale, setScale] = useState<number>(0.85);
@@ -168,20 +256,48 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
   const [pickerNodeId, setPickerNodeId] = useState<string | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const connectorIdRef = useRef(0);
   const isDark = theme === 'dark';
 
-  const notifyChange = (
-    nextClusters = clusters,
-    nextNodes = nodes,
-    nextConnectors = connectors
-  ) => {
-    onChange?.({
-      clusters: nextClusters,
-      nodes: nextNodes,
-      connectors: nextConnectors
-    });
-  };
+  // Keyboard shortcut listener (Escape & Delete / Backspace)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) return;
+
+      if (e.key === 'Escape') {
+        if (connectingFrom) {
+          e.preventDefault();
+          setConnectingFrom(null);
+        } else if (editingNode) {
+          setEditingNode(null);
+        } else if (editingCluster) {
+          setEditingCluster(null);
+        } else if (selectedId) {
+          setSelectedId(null);
+        }
+        return;
+      }
+
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
+        e.preventDefault();
+        if (nodes.some((n) => n.id === selectedId)) {
+          const nextNodes = nodes.filter((n) => n.id !== selectedId);
+          const nextConnectors = connectors.filter((c) => c.from !== selectedId && c.to !== selectedId);
+          notifyChange(clusters, nextNodes, nextConnectors);
+        } else if (clusters.some((c) => c.id === selectedId)) {
+          const nextClusters = clusters.filter((c) => c.id !== selectedId);
+          notifyChange(nextClusters, nodes, connectors);
+        } else if (connectors.some((c) => c.id === selectedId)) {
+          const nextConnectors = connectors.filter((c) => c.id !== selectedId);
+          notifyChange(clusters, nodes, nextConnectors);
+        }
+        setSelectedId(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [connectingFrom, editingNode, editingCluster, selectedId, nodes, clusters, connectors, notifyChange]);
 
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
@@ -198,27 +314,16 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
     }
     setScale(newScale);
   };
-// Listen for Escape key to cancel active wiring or close modals
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (connectingFrom) {
-          e.preventDefault();
-          setConnectingFrom(null);
-        } else if (editingNode) {
-          setEditingNode(null);
-        } else if (editingCluster) {
-          setEditingCluster(null);
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [connectingFrom, editingNode, editingCluster]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (draggedNode || draggedCluster || editingNode || editingCluster || connectingFrom) return;
+    if (
+      e.target === containerRef.current ||
+      (e.target as HTMLElement).tagName === 'svg' ||
+      (e.target as HTMLElement).id === 'grid-bg'
+    ) {
+      setSelectedId(null);
+    }
     setIsPanning(true);
     setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
   };
@@ -229,16 +334,16 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
     setMousePos({ x: canvasX, y: canvasY });
 
     if (draggedNode) {
-      setNodes((prev) =>
-        prev.map((n) =>
+      setNodes((prev: VisualStackNode[]) =>
+        prev.map((n: VisualStackNode) =>
           n.id === draggedNode.id
             ? { ...n, x: canvasX - draggedNode.offsetX, y: canvasY - draggedNode.offsetY }
             : n
         )
       );
     } else if (draggedCluster) {
-      setClusters((prev) =>
-        prev.map((c) =>
+      setClusters((prev: VisualStackCluster[]) =>
+        prev.map((c: VisualStackCluster) =>
           c.id === draggedCluster.id
             ? { ...c, x: canvasX - draggedCluster.offsetX, y: canvasY - draggedCluster.offsetY }
             : c
@@ -257,7 +362,6 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
           : n
       );
       setNodes(nextNodes);
-      notifyChange(clusters, nextNodes, connectors);
     } else if (draggedCluster) {
       const nextClusters = clusters.map((c) =>
         c.id === draggedCluster.id
@@ -265,7 +369,6 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
           : c
       );
       setClusters(nextClusters);
-      notifyChange(nextClusters, nodes, connectors);
     }
     setIsPanning(false);
     setDraggedNode(null);
@@ -279,7 +382,7 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
   };
 
   const handleAddCluster = () => {
-    const id = `cluster-${Date.now()}`;
+    const id = `cluster-${window.crypto?.randomUUID ? window.crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 9)}`;
     const newCluster: VisualStackCluster = {
       id,
       title: 'New Service Cluster',
@@ -293,16 +396,16 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
     const nextClusters = [...clusters, newCluster];
     setClusters(nextClusters);
     setEditingCluster(newCluster);
-    notifyChange(nextClusters, nodes, connectors);
+    setSelectedId(id);
   };
 
   const handleAddNode = () => {
-    const id = `node-${Date.now()}`;
+    const id = `node-${window.crypto?.randomUUID ? window.crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 9)}`;
     const newNode: VisualStackNode = {
       id,
       label: 'new-service',
       subtext: 'Service Module',
-      iconUrl: 'https://api.iconify.design/lucide/server.svg',
+      iconUrl: 'https://api.iconify.design/logos/nginx.svg',
       x: 450,
       y: 250,
       width: 68,
@@ -311,7 +414,7 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
     const nextNodes = [...nodes, newNode];
     setNodes(nextNodes);
     setEditingNode(newNode);
-    notifyChange(clusters, nextNodes, connectors);
+    setSelectedId(id);
   };
 
   const handlePortClick = (e: React.MouseEvent, nodeId: string) => {
@@ -320,18 +423,16 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
       setConnectingFrom(nodeId);
     } else {
       if (connectingFrom !== nodeId) {
-        const nextConnectors = [
-          ...connectors,
-          {
-            id: `conn-${connectorIdRef.current++}`,
-            from: connectingFrom,
-            to: nodeId,
-            label: 'Data Link',
-            color: isDark ? '#38bdf8' : '#0284c7'
-          }
-        ];
+        const newConnectorId = `conn-${window.crypto.randomUUID().slice(0, 8)}`;
+        const newConnector: VisualStackConnector = {
+          id: newConnectorId,
+          from: connectingFrom,
+          to: nodeId,
+          label: 'Data Link',
+          color: isDark ? '#38bdf8' : '#0284c7'
+        };
+        const nextConnectors = [...connectors, newConnector];
         setConnectors(nextConnectors);
-        notifyChange(clusters, nodes, nextConnectors);
       }
       setConnectingFrom(null);
     }
@@ -340,7 +441,7 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
   const handleDeleteConnector = (id: string) => {
     const nextConnectors = connectors.filter((c) => c.id !== id);
     setConnectors(nextConnectors);
-    notifyChange(clusters, nodes, nextConnectors);
+    if (selectedId === id) setSelectedId(null);
   };
 
   const handleDeleteNode = (id: string) => {
@@ -349,14 +450,14 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
     setNodes(nextNodes);
     setConnectors(nextConnectors);
     setEditingNode(null);
-    notifyChange(clusters, nextNodes, nextConnectors);
+    if (selectedId === id) setSelectedId(null);
   };
 
   const handleDeleteCluster = (id: string) => {
     const nextClusters = clusters.filter((c) => c.id !== id);
     setClusters(nextClusters);
     setEditingCluster(null);
-    notifyChange(nextClusters, nodes, connectors);
+    if (selectedId === id) setSelectedId(null);
   };
 
   return (
@@ -438,12 +539,12 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
               cursor: 'pointer'
             }}
           >
-            Cancel Cable
+            Cancel Cable (Esc)
           </button>
         )}
       </div>
 
-      {/* Floating Zoom Controls */}
+      {/* Floating Zoom HUD */}
       <div
         style={{
           position: 'absolute',
@@ -475,7 +576,15 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
         >
           +
         </button>
-        <span style={{ fontSize: '12px', fontWeight: 'bold', color: isDark ? '#94a3b8' : '#475569', minWidth: '40px', textAlign: 'center' }}>
+        <span
+          style={{
+            fontSize: '12px',
+            fontWeight: 'bold',
+            color: isDark ? '#94a3b8' : '#475569',
+            minWidth: '40px',
+            textAlign: 'center'
+          }}
+        >
           {Math.round(scale * 100)}%
         </span>
         <button
@@ -514,7 +623,7 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
         </button>
       </div>
 
-      {/* Main SVG Canvas */}
+      {/* Main SVG Vector Surface */}
       <svg
         id="aegisot-clean-svg"
         style={{
@@ -526,11 +635,9 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
         }}
       >
         <defs>
-          {/* Background Grid */}
-  <rect x="-5000" y="-5000" width="10000" height="10000" fill="url(#canvas-grid-dots)" />
-          <pattern id="canvas-grid-dots" width="20" height="20" patternUnits="userSpaceOnUse">
-    <circle cx="2" cy="2" r="1.2" fill={isDark ? '#334155' : '#cbd5e1'} opacity="0.6" />
-  </pattern>
+          <pattern id="clean-grid-dots" width="20" height="20" patternUnits="userSpaceOnUse">
+            <circle cx="2" cy="2" r="1.2" fill={isDark ? '#334155' : '#cbd5e1'} opacity="0.6" />
+          </pattern>
           <marker id="clean-arr-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
             <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#0284c7" />
           </marker>
@@ -546,70 +653,95 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
           <marker id="clean-arr-gray" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
             <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#64748b" />
           </marker>
+          <marker id="clean-arr-selected" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#f43f5e" />
+          </marker>
         </defs>
 
-        {/* 1. Clusters */}
-        {clusters.map((c) => (
-          <g
-            key={c.id}
-            transform={`translate(${c.x}, ${c.y})`}
-            onMouseDown={(e) => {
-              e.stopPropagation();
-              const mouseX = (e.clientX - pan.x) / scale;
-              const mouseY = (e.clientY - pan.y) / scale;
-              setDraggedCluster({ id: c.id, offsetX: mouseX - c.x, offsetY: mouseY - c.y });
-            }}
-            onDoubleClick={(e) => {
-              e.stopPropagation();
-              setEditingCluster(c);
-            }}
-            style={{ cursor: 'move' }}
-          >
-            <rect
-              width={c.width}
-              height={c.height}
-              rx="18"
-              fill={c.color || (isDark ? 'rgba(30, 41, 59, 0.4)' : '#f8fafc')}
-              stroke={c.borderColor || (isDark ? '#38bdf8' : '#a9cce3')}
-              strokeWidth="2"
-            />
-            <text
-              x="20"
-              y="32"
-              fontSize="16"
-              fontWeight="700"
-              fontFamily="system-ui, -apple-system, sans-serif"
-              fill={isDark ? '#e2e8f0' : '#1e293b'}
-            >
-              {c.title}
-            </text>
-          </g>
-        ))}
+        {/* Dotted Grid Background */}
+        <rect id="grid-bg" x="-5000" y="-5000" width="10000" height="10000" fill="url(#clean-grid-dots)" />
 
-        {/* 2. Connectors */}
+        {/* 1. Group Enclosures / Pods */}
+        {clusters.map((c) => {
+          const isSelected = selectedId === c.id;
+          return (
+            <g
+              key={c.id}
+              transform={`translate(${c.x}, ${c.y})`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedId(c.id);
+              }}
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                setSelectedId(c.id);
+                const mouseX = (e.clientX - pan.x) / scale;
+                const mouseY = (e.clientY - pan.y) / scale;
+                setDraggedCluster({ id: c.id, offsetX: mouseX - c.x, offsetY: mouseY - c.y });
+              }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                setEditingCluster(c);
+              }}
+              style={{ cursor: 'move' }}
+            >
+              <rect
+                width={c.width}
+                height={c.height}
+                rx="18"
+                fill={c.color || (isDark ? 'rgba(30, 41, 59, 0.4)' : '#f8fafc')}
+                stroke={isSelected ? '#f43f5e' : c.borderColor || (isDark ? '#38bdf8' : '#a9cce3')}
+                strokeWidth={isSelected ? '3' : '2'}
+                strokeDasharray={isSelected ? '6 4' : 'none'}
+              />
+              <text
+                x="20"
+                y="32"
+                fontSize="16"
+                fontWeight="700"
+                fontFamily="system-ui, -apple-system, sans-serif"
+                fill={isDark ? '#e2e8f0' : '#1e293b'}
+              >
+                {c.title}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* 2. Orthogonal Connectors */}
         {connectors.map((line) => {
+          const isSelected = selectedId === line.id;
           const from = getNodeCenter(line.from);
           const to = getNodeCenter(line.to);
           const midX = (from.x + to.x) / 2;
           const pathD = `M ${from.x} ${from.y} L ${midX} ${from.y} L ${midX} ${to.y} L ${to.x} ${to.y}`;
 
-          const marker =
-            line.color === '#059669'
-              ? 'url(#clean-arr-green)'
-              : line.color === '#d97706'
-              ? 'url(#clean-arr-amber)'
-              : line.color === '#dc2626'
-              ? 'url(#clean-arr-red)'
-              : line.color === '#64748b'
-              ? 'url(#clean-arr-gray)'
-              : 'url(#clean-arr-blue)';
+          const marker = isSelected
+            ? 'url(#clean-arr-selected)'
+            : line.color === '#059669'
+            ? 'url(#clean-arr-green)'
+            : line.color === '#d97706'
+            ? 'url(#clean-arr-amber)'
+            : line.color === '#dc2626'
+            ? 'url(#clean-arr-red)'
+            : line.color === '#64748b'
+            ? 'url(#clean-arr-gray)'
+            : 'url(#clean-arr-blue)';
 
           return (
-            <g key={line.id} onDoubleClick={() => handleDeleteConnector(line.id)} style={{ cursor: 'pointer' }}>
+            <g
+              key={line.id}
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedId(line.id);
+              }}
+              onDoubleClick={() => handleDeleteConnector(line.id)}
+              style={{ cursor: 'pointer' }}
+            >
               <path
                 d={pathD}
-                stroke={line.color}
-                strokeWidth="2"
+                stroke={isSelected ? '#f43f5e' : line.color}
+                strokeWidth={isSelected ? '3.5' : '2'}
                 strokeDasharray={line.dashed ? '6 4' : 'none'}
                 fill="none"
                 markerEnd={marker}
@@ -619,7 +751,7 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
                   x={midX}
                   y={(from.y + to.y) / 2 - 6}
                   fontSize="11"
-                  fill={isDark ? '#94a3b8' : '#475569'}
+                  fill={isSelected ? '#f43f5e' : isDark ? '#94a3b8' : '#475569'}
                   textAnchor="middle"
                   fontWeight="600"
                 >
@@ -630,7 +762,7 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
           );
         })}
 
-        {/* Cable Drag Preview */}
+        {/* Temporary Wire Drag Line */}
         {connectingFrom && (
           <line
             x1={getNodeCenter(connectingFrom).x}
@@ -643,90 +775,92 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
           />
         )}
 
-        {/* 3. Nodes */}
-        {nodes.map((node) => (
-          <g
-            key={node.id}
-            transform={`translate(${node.x}, ${node.y})`}
-            onMouseDown={(e) => {
-              e.stopPropagation();
-              const mouseX = (e.clientX - pan.x) / scale;
-              const mouseY = (e.clientY - pan.y) / scale;
-              setDraggedNode({ id: node.id, offsetX: mouseX - node.x, offsetY: mouseY - node.y });
-            }}
-            onDoubleClick={(e) => {
-              e.stopPropagation();
-              setEditingNode(node);
-            }}
-            style={{ cursor: 'move' }}
-          >
-            <rect width={node.width} height={node.height + 36} fill="transparent" />
-
-           {node.iconUrl && node.iconUrl.trim() !== '' ? (
-  <image
-    href={node.iconUrl}
-    x={(node.width - 48) / 2}
-    y={0}
-    width={48}
-    height={48}
-    preserveAspectRatio="xMidYMid meet"
-    onError={(e) => {
-      // Hide broken image link if the CDN or URL fails
-      (e.currentTarget as SVGImageElement).style.display = 'none';
-    }}
-  />
-) : (
-  <g>
-    <circle cx={node.width / 2} cy={24} r={22} fill="#0284c7" opacity={0.15} />
-    <text
-      x={node.width / 2}
-      y={29}
-      fontSize="16"
-      textAnchor="middle"
-      fill="#0284c7"
-      fontWeight="bold"
-    >
-      {node.label ? node.label.charAt(0).toUpperCase() : '■'}
-    </text>
-  </g>
-)}
-
-            <text
-              x={node.width / 2}
-              y={node.height + 14}
-              fontSize="13"
-              fontWeight="700"
-              fontFamily="system-ui, -apple-system, sans-serif"
-              fill={isDark ? '#f8fafc' : '#0f172a'}
-              textAnchor="middle"
+        {/* 3. Universal Service Nodes */}
+        {nodes.map((node) => {
+          const isSelected = selectedId === node.id;
+          return (
+            <g
+              key={node.id}
+              transform={`translate(${node.x}, ${node.y})`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedId(node.id);
+              }}
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                setSelectedId(node.id);
+                const mouseX = (e.clientX - pan.x) / scale;
+                const mouseY = (e.clientY - pan.y) / scale;
+                setDraggedNode({ id: node.id, offsetX: mouseX - node.x, offsetY: mouseY - node.y });
+              }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                setEditingNode(node);
+              }}
+              style={{ cursor: 'move' }}
             >
-              {node.label}
-            </text>
+              {isSelected && (
+                <rect
+                  x="-8"
+                  y="-8"
+                  width={node.width + 16}
+                  height={node.height + 46}
+                  rx="10"
+                  fill="none"
+                  stroke="#f43f5e"
+                  strokeWidth="2"
+                  strokeDasharray="4 4"
+                />
+              )}
 
-            {node.subtext && (
+              <rect width={node.width} height={node.height + 36} fill="transparent" />
+
+              <SafeSvgIcon
+                url={node.iconUrl}
+                x={(node.width - 44) / 2}
+                y={4}
+                size={44}
+                fallbackLabel={node.label || 'S'}
+                color="#0284c7"
+              />
+
               <text
                 x={node.width / 2}
-                y={node.height + 28}
-                fontSize="11"
-                fill={isDark ? '#94a3b8' : '#64748b'}
+                y={node.height + 14}
+                fontSize="13"
+                fontWeight="700"
+                fontFamily="system-ui, -apple-system, sans-serif"
+                fill={isDark ? '#f8fafc' : '#0f172a'}
                 textAnchor="middle"
               >
-                {node.subtext}
+                {node.label}
               </text>
-            )}
 
-            <circle
-              cx={node.width + 4}
-              cy={24}
-              r="6"
-              fill={connectingFrom === node.id ? '#ef4444' : '#0284c7'}
-              stroke="#ffffff"
-              strokeWidth="1.5"
-              style={{ cursor: 'pointer' }}
-              onClick={(e) => handlePortClick(e, node.id)}
-            />
-          </g>
-        ))}
+              {node.subtext && (
+                <text
+                  x={node.width / 2}
+                  y={node.height + 28}
+                  fontSize="11"
+                  fill={isDark ? '#94a3b8' : '#64748b'}
+                  textAnchor="middle"
+                >
+                  {node.subtext}
+                </text>
+              )}
+
+              <circle
+                cx={node.width + 4}
+                cy={24}
+                r="6"
+                fill={connectingFrom === node.id ? '#ef4444' : '#0284c7'}
+                stroke="#ffffff"
+                strokeWidth="1.5"
+                style={{ cursor: 'pointer' }}
+                onClick={(e) => handlePortClick(e, node.id)}
+              />
+            </g>
+          );
+        })}
       </svg>
 
       {/* Edit Node Modal */}
@@ -861,7 +995,6 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
                     const nextNodes = nodes.map((n) => (n.id === editingNode.id ? editingNode : n));
                     setNodes(nextNodes);
                     setEditingNode(null);
-                    notifyChange(clusters, nextNodes, connectors);
                   }}
                   style={{
                     padding: '7px 16px',
@@ -881,7 +1014,7 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
         </div>
       )}
 
-      {/* Edit Cluster Modal */}
+      {/* Edit Box Cluster Modal */}
       {editingCluster && (
         <div
           style={{
@@ -1006,7 +1139,6 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
                     const nextClusters = clusters.map((c) => (c.id === editingCluster.id ? editingCluster : c));
                     setClusters(nextClusters);
                     setEditingCluster(null);
-                    notifyChange(nextClusters, nodes, connectors);
                   }}
                   style={{
                     padding: '7px 16px',
@@ -1026,7 +1158,7 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
         </div>
       )}
 
-      {/* Universal Icon Picker Modal */}
+      {/* Shared Universal Icon Picker Modal */}
       {pickerNodeId && (
         <IconPicker
           isOpen={Boolean(pickerNodeId)}
@@ -1040,7 +1172,6 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
             if (editingNode && editingNode.id === pickerNodeId) {
               setEditingNode({ ...editingNode, iconUrl: icon.url });
             }
-            notifyChange(clusters, nextNodes, connectors);
             setPickerNodeId(null);
           }}
         />

@@ -1,4 +1,4 @@
-import React, { useState,useEffect,  useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { IconPicker } from './IconPicker';
 import type { IconResult } from './IconLibrary';
 import type { VisualStackNode, VisualStackConnector } from './types/project';
@@ -115,9 +115,9 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const isDark = theme === 'dark';
 
-  const notifyChange = (nextNodes = nodes, nextConnectors = connectors) => {
+  const notifyChange = useCallback((nextNodes = nodes, nextConnectors = connectors) => {
     onChange?.({ nodes: nextNodes, connectors: nextConnectors });
-  };
+  }, [onChange, nodes, connectors]);
 
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
@@ -135,21 +135,29 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
     setScale(newScale);
   };
 // Listen for Escape key to cancel cable wiring or close modals
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (connectingFrom) {
-          e.preventDefault();
-          setConnectingFrom(null);
-        } else if (editingNode) {
-          setEditingNode(null);
-        }
+      const activeEl = document.activeElement;
+      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) return;
+
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNodeId) {
+        e.preventDefault();
+        const nextNodes = nodes.filter((n) => n.id !== selectedNodeId);
+        const nextConnectors = connectors.filter((c) => c.from !== selectedNodeId && c.to !== selectedNodeId);
+        notifyChange(nextNodes, nextConnectors);
+        setSelectedNodeId(null);
+      } else if (e.key === 'Escape') {
+        setSelectedNodeId(null);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [connectingFrom, editingNode]);
+  }, [selectedNodeId, nodes, connectors, notifyChange]);
+
+  
   const handleMouseDown = (e: React.MouseEvent) => {
     if (draggedNode || editingNode || connectingFrom) return;
     setIsPanning(true);
@@ -454,30 +462,33 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
         )}
 
         {/* Nodes */}
-        {nodes.map((node) => (
-          <g
-            key={node.id}
-            transform={`translate(${node.x}, ${node.y})`}
-            onMouseDown={(e) => {
-              e.stopPropagation();
-              const mouseX = (e.clientX - pan.x) / scale;
-              const mouseY = (e.clientY - pan.y) / scale;
-              setDraggedNode({ id: node.id, offsetX: mouseX - node.x, offsetY: mouseY - node.y });
-            }}
-            onDoubleClick={(e) => {
-              e.stopPropagation();
-              setEditingNode(node);
-            }}
-            style={{ cursor: 'move' }}
-          >
-            <rect
-              width={node.width}
-              height={node.height}
-              rx="10"
-              fill={isDark ? '#1e293b' : '#ffffff'}
-              stroke={node.color || '#0284c7'}
-              strokeWidth="2"
-            />
+        {nodes.map((node) => {
+          const isSelected = selectedNodeId === node.id;
+          return (
+            <g
+              key={node.id}
+              transform={`translate(${node.x}, ${node.y})`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedNodeId(node.id);
+              }}
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                setSelectedNodeId(node.id);
+                const mouseX = (e.clientX - pan.x) / scale;
+                const mouseY = (e.clientY - pan.y) / scale;
+                setDraggedNode({ id: node.id, offsetX: mouseX - node.x, offsetY: mouseY - node.y });
+              }}
+              style={{ cursor: 'move' }}
+            >
+              <rect
+                width={node.width}
+                height={node.height}
+                rx="10"
+                fill={isDark ? '#1e293b' : '#ffffff'}
+                stroke={isSelected ? '#f43f5e' : (node.color || '#0284c7')}
+                strokeWidth={isSelected ? '3' : '2'}
+              />
             <rect width="6" height={node.height} rx="3" fill={node.color || '#0284c7'} />
 
             {node.iconUrl && node.iconUrl.trim() !== '' ? (
@@ -556,7 +567,8 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
               onClick={(e) => handleConnectPortClick(e, node.id)}
             />
           </g>
-        ))}
+       );
+        })}
       </svg>
 
       {/* Edit Node Modal */}
