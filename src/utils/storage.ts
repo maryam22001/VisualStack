@@ -95,13 +95,29 @@ export function loadSavedProject(): VisualStackProject {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return defaultProject;
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    
+    // Ensure all critical sections exist to prevent property access crashes
+    return {
+      id: parsed.id || defaultProject.id,
+      title: parsed.title || defaultProject.title,
+      updatedAt: parsed.updatedAt || defaultProject.updatedAt,
+      activeTab: parsed.activeTab || 'clean',
+      cleanView: {
+        clusters: Array.isArray(parsed.cleanView?.clusters) ? parsed.cleanView.clusters : defaultProject.cleanView.clusters,
+        nodes: Array.isArray(parsed.cleanView?.nodes) ? parsed.cleanView.nodes : defaultProject.cleanView.nodes,
+        connectors: Array.isArray(parsed.cleanView?.connectors) ? parsed.cleanView.connectors : defaultProject.cleanView.connectors
+      },
+      detailed2DView: {
+        nodes: Array.isArray(parsed.detailed2DView?.nodes) ? parsed.detailed2DView.nodes : defaultProject.detailed2DView.nodes,
+        connectors: Array.isArray(parsed.detailed2DView?.connectors) ? parsed.detailed2DView.connectors : defaultProject.detailed2DView.connectors
+      }
+    };
   } catch (err) {
     console.error('Failed to load project from localStorage:', err);
     return defaultProject;
   }
 }
-
 export function saveProjectToStorage(project: VisualStackProject): void {
   try {
     const updated = { ...project, updatedAt: new Date().toISOString() };

@@ -6,13 +6,23 @@ import { initialData } from './stackData';
 import { loadSavedProject, saveProjectToStorage, exportProjectAsJSON } from './utils/storage';
 import type { VisualStackProject } from './types/project';
 
-const rawModule = IsoflowModule as Record<string, unknown>;
-const nestedDefault = rawModule.default as Record<string, unknown> | undefined;
+// Safely resolve Isoflow component export across Vite ESM/CJS boundaries
+const getIsoflowComponent = (): ComponentType<Record<string, unknown>> => {
+  const mod = IsoflowModule as Record<string, unknown>;
+  if (typeof mod.Isoflow === 'function') return mod.Isoflow as ComponentType<Record<string, unknown>>;
+  if (typeof mod.default === 'function') return mod.default as ComponentType<Record<string, unknown>>;
+  const def = mod.default as Record<string, unknown> | undefined;
+  if (def && typeof def.default === 'function') return def.default as ComponentType<Record<string, unknown>>;
+  if (def && typeof def.Isoflow === 'function') return def.Isoflow as ComponentType<Record<string, unknown>>;
+  // Safe fallback component if module failed to extract
+  return () => (
+    <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>
+      Isoflow 3D viewer is loading or unavailable.
+    </div>
+  );
+};
 
-const IsoflowComponent: ComponentType<Record<string, unknown>> =
-  (nestedDefault?.default as ComponentType<Record<string, unknown>>) ||
-  (rawModule.default as ComponentType<Record<string, unknown>>) ||
-  (rawModule as unknown as ComponentType<Record<string, unknown>>);
+const IsoflowComponent = getIsoflowComponent();
 
 export default function App() {
   const [project, setProject] = useState<VisualStackProject>(loadSavedProject);
@@ -262,13 +272,13 @@ export default function App() {
 
       {/* Main Canvas Workspace */}
       <main style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-       {project.activeTab === 'clean' && (
+        {project.activeTab === 'clean' && (
           <CleanArchitectureView
             theme={theme}
-            clusters={project.cleanView.clusters}
-            nodes={project.cleanView.nodes}
-            connectors={project.cleanView.connectors}
-            onChange={(data: VisualStackProject['cleanView']) =>
+            clusters={project.cleanView?.clusters ?? []}
+            nodes={project.cleanView?.nodes ?? []}
+            connectors={project.cleanView?.connectors ?? []}
+            onChange={(data) =>
               updateProject((prev) => ({
                 ...prev,
                 cleanView: data
@@ -279,23 +289,10 @@ export default function App() {
         {project.activeTab === '2d' && (
           <Architecture2D
             theme={theme}
-            nodes={project.detailed2DView.nodes}
-            connectors={project.detailed2DView.connectors}
-            onChange={(data: VisualStackProject['detailed2DView']) =>
-              updateProject((prev) => ({
-                ...prev,
-                detailed2DView: data
-              }))
-            }
-          />
-        )}
-        {project.activeTab === '2d' && (
-          <Architecture2D
-            theme={theme}
-            nodes={project.detailed2DView.nodes}
-            connectors={project.detailed2DView.connectors}
+            nodes={project.detailed2DView?.nodes ?? []}
+            connectors={project.detailed2DView?.connectors ?? []}
             onChange={(data) =>
-              setProject((prev) => ({
+              updateProject((prev) => ({
                 ...prev,
                 detailed2DView: data
               }))

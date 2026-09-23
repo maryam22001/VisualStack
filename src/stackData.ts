@@ -5,6 +5,39 @@ import gcpIsopack from '@isoflow/isopacks/dist/gcp';
 import azureIsopack from '@isoflow/isopacks/dist/azure';
 import kubernetesIsopack from '@isoflow/isopacks/dist/kubernetes';
 
+// Helper to safely extract the pack whether Vite resolves it directly or under .default
+const resolvePack = (pack: unknown) => {
+  if (!pack || typeof pack !== 'object') return null;
+
+  const candidate = pack as { icons?: unknown; default?: { icons?: unknown } };
+  if (Array.isArray(candidate.icons)) return candidate;
+  if (candidate.default && Array.isArray(candidate.default.icons)) return candidate.default;
+  return null;
+};
+
+const rawPacks = [isoflowIsopack, awsIsopack, gcpIsopack, azureIsopack, kubernetesIsopack];
+const validPacks = rawPacks.map(resolvePack).filter(
+  (pack): pack is NonNullable<typeof pack> => Boolean(pack)
+);
+
+// Fallback icons if no external isopacks resolve properly
+export const fallbackIcons = [
+  {
+    id: 'icon-server',
+    name: 'Server',
+    url: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><polygon points="50 15, 85 35, 50 55, 15 35" fill="%230284c7"/><polygon points="15 35, 50 55, 50 85, 15 65" fill="%230369a1"/><polygon points="85 35, 50 55, 50 85, 85 65" fill="%23075985"/></svg>',
+    isIsometric: true
+  },
+  {
+    id: 'icon-device',
+    name: 'Device',
+    url: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><polygon points="50 15, 85 35, 50 55, 15 35" fill="%2310b981"/><polygon points="15 35, 50 55, 50 85, 15 65" fill="%23059669"/><polygon points="85 35, 50 55, 50 85, 85 65" fill="%23047857"/></svg>',
+    isIsometric: true
+  }
+];
+
+
+
 export interface ArchitectureItem {
   id: string;
   name: string;
@@ -12,13 +45,9 @@ export interface ArchitectureItem {
 }
 
 // Flatten all bundled collections into a single icon registry
-export const allIcons = flattenCollections([
-  isoflowIsopack,
-  awsIsopack,
-  gcpIsopack,
-  azureIsopack,
-  kubernetesIsopack
-]);
+export const allIcons = validPacks.length > 0
+  ? flattenCollections(validPacks as Parameters<typeof flattenCollections>[0])
+  : fallbackIcons;
 
 export const colors = [
   { id: 'c-cyan', value: '#00A8CC' },
