@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef, type ComponentType } from 'react';
+import { useState, useEffect, useRef, useMemo, type ComponentType } from 'react';
 import * as IsoflowModule from 'isoflow';
 import { Architecture2D } from './Architecture2D';
 import { CleanArchitectureView } from './CleanArchitectureView';
+//import { initialData } from '../src/stackData';
 import {
   loadSavedProject,
   saveProjectToStorage,
@@ -10,9 +11,28 @@ import {
   decodeProjectFromHash,
   exportSvgToPng
 } from './utils/storage';
-import type { VisualStackProject } from './types/project';
-import { convertProjectToIsoflowData } from './utils/isoflowAdapter';
 import { useProjectHistory } from './utils/useProjectHistory';
+import { convertProjectToIsoflowData } from './utils/isoflowAdapter';
+import {
+  loadDesigns,
+  upsertDesign,
+  renameDesign,
+  deleteDesign,
+  addCollaboratorToDesign,
+  removeCollaborator,
+  loadProfile,
+  saveProfile,
+  type SavedDesign,
+  type UserProfile
+} from './utils/designStorage';
+import { DesignGalleryModal } from './components/DesignGalleryModal';
+import {
+  getSessionUser,
+  setSessionUser,
+  getAllWorkspaces,
+  type UserAccount
+} from './utils/authStorage';
+import { AuthModal } from './components/AuthModal';
 
 // Safely resolve Isoflow component export across Vite ESM/CJS boundaries
 const getIsoflowComponent = (): ComponentType<Record<string, unknown>> => {
@@ -27,67 +47,95 @@ const getIsoflowComponent = (): ComponentType<Record<string, unknown>> => {
 const IsoflowComponent = getIsoflowComponent();
 
 export default function App() {
-  // Load from URL hash if available; otherwise fall back to localStorage
   const initialProjectState = () => {
-  const fromUrl = decodeProjectFromHash();
-  if (fromUrl) return fromUrl;
-  return loadSavedProject();
-};
+    const fromUrl = decodeProjectFromHash();
+    if (fromUrl) return fromUrl;
+    return loadSavedProject();
+  };
 
-const {
-  project,
-  updateProject: historyUpdateProject,
-  setProjectDirect,
-  undo,
-  redo,
-  canUndo,
-  canRedo
-} = useProjectHistory(initialProjectState());
+  const {
+    project,
+    updateProject,
+    setProjectDirect,
+    undo,
+    redo,
+    canUndo,
+    canRedo
+  } = useProjectHistory(initialProjectState());
+
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving'>('saved');
   const [theme, setTheme] = useState<'dark' | 'light'>('light');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const isFirstRender = useRef(true);
+
+  // Gallery & Profile state
+  const [designs, setDesigns] = useState<SavedDesign[]>(() => loadDesigns());
+  const [profile, setProfile] = useState<UserProfile>(() => loadProfile());
+  const [currentDesignId, setCurrentDesignId] = useState<string | null>(null);
+  const [isGalleryOpen, setIsGalleryOpen] = useState(false);
+
+  // Auth & Workspaces state
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => getSessionUser());
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+
+  const currentWorkspaceName = useMemo(() => {
+    if (!currentUser?.currentWorkspaceId) return 'Personal Workspace';
+    const ws = getAllWorkspaces().find((w) => w.id === currentUser.currentWorkspaceId);
+    return ws?.name || 'Workspace';
+  }, [currentUser]);
 
   // Auto-save & sync state
-// Global Shortcut listener for Undo (Ctrl+Z) & Redo (Ctrl+Y / Ctrl+Shift+Z)
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      saveProjectToStorage(project);
+      setSaveStatus('saved');
+    }, 600);
+
+    return () => clearTimeout(timer);
+  }, [project]);
+
+  // Global Keyboard Shortcuts (Undo, Redo)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeEl = document.activeElement;
       const isInput =
-        activeEl instanceof HTMLInputElement ||
-        activeEl instanceof HTMLTextAreaElement ||
-        activeEl?.getAttribute('contenteditable') === 'true';
+        activeEl &&
+        (activeEl.tagName === 'INPUT' ||
+          activeEl.tagName === 'TEXTAREA' ||
+          (activeEl as HTMLElement).isContentEditable);
 
       if (isInput) return;
 
-      const isModifier = e.ctrlKey || e.metaKey;
+      const isCtrlOrCmd = e.ctrlKey || e.metaKey;
 
-      if (isModifier && e.key.toLowerCase() === 'z') {
+      if (isCtrlOrCmd && (e.key === 'z' || e.key === 'Z')) {
         e.preventDefault();
+        e.stopPropagation();
         if (e.shiftKey) {
           redo();
         } else {
           undo();
         }
-      } else if (isModifier && e.key.toLowerCase() === 'y') {
+      } else if (isCtrlOrCmd && (e.key === 'y' || e.key === 'Y')) {
         e.preventDefault();
+        e.stopPropagation();
         redo();
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown, { capture: true });
-    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [undo, redo]);
-
-  const updateProject = (updater: (prev: VisualStackProject) => VisualStackProject) => {
-    setSaveStatus('saving');
-    historyUpdateProject(updater);
-  };
 
   const updateTitle = (newTitle: string) => {
     updateProject((prev) => ({ ...prev, title: newTitle }));
   };
 
-  // Copy shareable link
   const handleCopyShareLink = () => {
     const hash = encodeProjectToHash(project);
     const fullUrl = `${window.location.origin}${window.location.pathname}${hash}`;
@@ -96,7 +144,6 @@ const {
     });
   };
 
-  // PNG Export Handler
   const handleExportPng = (copyToClipboard = false) => {
     let selector = '#aegisot-clean-svg';
     let filename = `${project.title.toLowerCase().replace(/\s+/g, '-')}-clean.png`;
@@ -149,25 +196,48 @@ const {
     URL.revokeObjectURL(url);
   };
 
- const handleImportJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
-  const file = e.target.files?.[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (event) => {
-    try {
-      const parsed = JSON.parse(event.target?.result as string);
-      if (parsed.title && (parsed.cleanView || parsed.detailed2DView)) {
-        setProjectDirect(parsed);
-        saveProjectToStorage(parsed);
-      } else {
-        alert('Invalid VisualStack design file format.');
+  const handleImportJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const parsed = JSON.parse(event.target?.result as string);
+        if (parsed.title && (parsed.cleanView || parsed.detailed2DView)) {
+          setProjectDirect(parsed);
+          saveProjectToStorage(parsed);
+        } else {
+          alert('Invalid VisualStack design file format.');
+        }
+      } catch {
+        alert('Failed to parse JSON file.');
       }
-    } catch {
-      alert('Failed to parse JSON file.');
-    }
+    };
+    reader.readAsText(file);
   };
-  reader.readAsText(file);
-};
+
+  const handleSaveDesign = () => {
+    const id = currentDesignId || `design-${Date.now()}`;
+    const newDesign: SavedDesign = {
+      id,
+      title: project.title || 'Untitled Architecture',
+      updatedAt: Date.now(),
+      collaborators: designs.find((d) => d.id === id)?.collaborators || [],
+      project: { ...project, id }
+    };
+
+    const updated = upsertDesign(newDesign);
+    setDesigns(updated);
+    setCurrentDesignId(id);
+    alert(`Design "${project.title}" saved successfully to your gallery!`);
+  };
+
+  const handleSelectDesign = (saved: SavedDesign) => {
+    setProjectDirect(saved.project);
+    setCurrentDesignId(saved.id);
+    setIsGalleryOpen(false);
+  };
+
   const isDark = theme === 'dark';
 
   return (
@@ -182,7 +252,7 @@ const {
         overflow: 'hidden'
       }}
     >
-      {/* Top Header */}
+      {/* Top Application Header */}
       <header
         style={{
           height: '56px',
@@ -196,7 +266,7 @@ const {
           flexShrink: 0
         }}
       >
-        {/* Title */}
+        {/* Left Section: Brand & Title */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <span style={{ fontSize: '18px', fontWeight: '800', color: '#0284c7' }}>
             VisualStack
@@ -215,7 +285,7 @@ const {
               background: 'transparent',
               color: isDark ? '#f8fafc' : '#0f172a',
               outline: 'none',
-              maxWidth: '200px'
+              maxWidth: '180px'
             }}
           />
           <span style={{ fontSize: '11px', color: saveStatus === 'saving' ? '#d97706' : '#16a34a' }}>
@@ -223,39 +293,139 @@ const {
           </span>
         </div>
 
-        {/* Tab Switcher */}
-        <div
-          style={{
-            display: 'flex',
-            background: isDark ? '#0f172a' : '#f1f5f9',
-            padding: '3px',
-            borderRadius: '8px',
-            border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
-            gap: '4px'
-          }}
-        >
-          {(['clean', '2d', '3d'] as const).map((tab) => (
+        {/* Center Section: Tabs & Undo/Redo */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div
+            style={{
+              display: 'flex',
+              background: isDark ? '#0f172a' : '#f1f5f9',
+              padding: '3px',
+              borderRadius: '8px',
+              border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
+              gap: '4px'
+            }}
+          >
+            {(['clean', '2d', '3d'] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => updateProject((prev) => ({ ...prev, activeTab: tab }))}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontWeight: '600',
+                  fontSize: '12px',
+                  background: project.activeTab === tab ? '#0284c7' : 'transparent',
+                  color: project.activeTab === tab ? '#ffffff' : isDark ? '#94a3b8' : '#64748b'
+                }}
+              >
+                {tab === 'clean' ? 'Clean Diagram' : tab === '2d' ? 'Detailed 2D View' : '3D Isometric'}
+              </button>
+            ))}
+          </div>
+
+          {/* Undo / Redo Buttons */}
+          <div style={{ display: 'flex', gap: '4px' }}>
             <button
-              key={tab}
-              onClick={() => updateProject((prev) => ({ ...prev, activeTab: tab }))}
+              onClick={undo}
+              disabled={!canUndo}
+              title="Undo (Ctrl + Z)"
               style={{
-                padding: '6px 14px',
-                borderRadius: '6px',
+                background: isDark ? '#334155' : '#e2e8f0',
+                color: isDark ? '#f8fafc' : '#0f172a',
                 border: 'none',
-                cursor: 'pointer',
-                fontWeight: '600',
+                borderRadius: '6px',
+                padding: '6px 10px',
                 fontSize: '12px',
-                background: project.activeTab === tab ? '#0284c7' : 'transparent',
-                color: project.activeTab === tab ? '#ffffff' : isDark ? '#94a3b8' : '#64748b'
+                fontWeight: 'bold',
+                cursor: canUndo ? 'pointer' : 'not-allowed',
+                opacity: canUndo ? 1 : 0.4
               }}
             >
-              {tab === 'clean' ? 'Clean Diagram' : tab === '2d' ? 'Detailed 2D View' : '3D Isometric'}
+              ↩
             </button>
-          ))}
+            <button
+              onClick={redo}
+              disabled={!canRedo}
+              title="Redo (Ctrl + Y)"
+              style={{
+                background: isDark ? '#334155' : '#e2e8f0',
+                color: isDark ? '#f8fafc' : '#0f172a',
+                border: 'none',
+                borderRadius: '6px',
+                padding: '6px 10px',
+                fontSize: '12px',
+                fontWeight: 'bold',
+                cursor: canRedo ? 'pointer' : 'not-allowed',
+                opacity: canRedo ? 1 : 0.4
+              }}
+            >
+              ↪
+            </button>
+          </div>
         </div>
 
-        {/* Action Controls */}
+        {/* Right Section: Workspace, Auth, Actions & Exports */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {/* User Account & Workspace Trigger */}
+          {currentUser ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <button
+                onClick={() => setIsAuthOpen(true)}
+                title="Manage Workspaces"
+                style={{
+                  background: isDark ? '#0f172a' : '#f1f5f9',
+                  border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
+                  color: '#0284c7',
+                  padding: '5px 10px',
+                  borderRadius: '6px',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  cursor: 'pointer'
+                }}
+              >
+                🏢 {currentWorkspaceName}
+              </button>
+              <button
+                onClick={() => {
+                  if (confirm(`Signed in as ${currentUser.email}. Do you want to log out?`)) {
+                    setSessionUser(null);
+                    setCurrentUser(null);
+                  }
+                }}
+                style={{
+                  background: currentUser.isEmailVerified ? '#10b981' : '#f59e0b',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '6px',
+                  padding: '5px 8px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                {currentUser.name} {currentUser.isEmailVerified ? '✓' : '(Verify)'}
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setIsAuthOpen(true)}
+              style={{
+                background: '#0284c7',
+                color: '#fff',
+                border: 'none',
+                padding: '5px 10px',
+                borderRadius: '6px',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+            >
+              Sign In
+            </button>
+          )}
+
           <input
             type="file"
             ref={fileInputRef}
@@ -265,19 +435,51 @@ const {
           />
 
           <button
-            onClick={handleCopyShareLink}
+            onClick={handleSaveDesign}
             style={{
               background: '#0284c7',
               color: '#fff',
               border: 'none',
-              padding: '6px 12px',
+              padding: '6px 10px',
               borderRadius: '6px',
               fontSize: '12px',
               fontWeight: '600',
               cursor: 'pointer'
             }}
           >
-            🔗 Share Link
+            💾 Save
+          </button>
+
+          <button
+            onClick={() => setIsGalleryOpen(true)}
+            style={{
+              background: isDark ? '#334155' : '#e2e8f0',
+              color: isDark ? '#f8fafc' : '#0f172a',
+              border: 'none',
+              padding: '6px 10px',
+              borderRadius: '6px',
+              fontSize: '12px',
+              fontWeight: '600',
+              cursor: 'pointer'
+            }}
+          >
+            📁 Designs ({designs.length})
+          </button>
+
+          <button
+            onClick={handleCopyShareLink}
+            style={{
+              background: '#0284c7',
+              color: '#fff',
+              border: 'none',
+              padding: '6px 10px',
+              borderRadius: '6px',
+              fontSize: '12px',
+              fontWeight: '600',
+              cursor: 'pointer'
+            }}
+          >
+            🔗 Share
           </button>
 
           <button
@@ -286,30 +488,30 @@ const {
               background: '#10b981',
               color: '#fff',
               border: 'none',
-              padding: '6px 12px',
+              padding: '6px 10px',
               borderRadius: '6px',
               fontSize: '12px',
               fontWeight: '600',
               cursor: 'pointer'
             }}
           >
-            Export PNG
+            PNG
           </button>
 
           <button
             onClick={() => handleExportPng(true)}
-            title="Copy high-res image to clipboard"
+            title="Copy image to clipboard"
             style={{
               background: isDark ? '#334155' : '#e2e8f0',
               color: isDark ? '#f8fafc' : '#0f172a',
               border: 'none',
-              padding: '6px 10px',
+              padding: '6px 8px',
               borderRadius: '6px',
               fontSize: '12px',
               cursor: 'pointer'
             }}
           >
-            📋 Copy Image
+            📋
           </button>
 
           <button
@@ -318,13 +520,13 @@ const {
               background: 'transparent',
               border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
               color: isDark ? '#cbd5e1' : '#475569',
-              padding: '6px 10px',
+              padding: '6px 8px',
               borderRadius: '6px',
               fontSize: '12px',
               cursor: 'pointer'
             }}
           >
-            Export SVG
+            SVG
           </button>
 
           <button
@@ -333,7 +535,7 @@ const {
               background: 'transparent',
               border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
               color: isDark ? '#cbd5e1' : '#475569',
-              padding: '6px 10px',
+              padding: '6px 8px',
               borderRadius: '6px',
               fontSize: '12px',
               cursor: 'pointer'
@@ -348,7 +550,7 @@ const {
               background: isDark ? '#334155' : '#e2e8f0',
               color: isDark ? '#f8fafc' : '#0f172a',
               border: 'none',
-              padding: '6px 10px',
+              padding: '6px 8px',
               borderRadius: '6px',
               fontSize: '12px',
               cursor: 'pointer'
@@ -357,45 +559,6 @@ const {
             {isDark ? '☀️' : '🌙'}
           </button>
         </div>
-        {/* Undo / Redo HUD */}
-<div style={{ display: 'flex', gap: '4px' }}>
-  <button
-    onClick={undo}
-    disabled={!canUndo}
-    title="Undo (Ctrl + Z)"
-    style={{
-      background: isDark ? '#334155' : '#e2e8f0',
-      color: isDark ? '#f8fafc' : '#0f172a',
-      border: 'none',
-      borderRadius: '6px',
-      padding: '6px 10px',
-      fontSize: '12px',
-      fontWeight: 'bold',
-      cursor: canUndo ? 'pointer' : 'not-allowed',
-      opacity: canUndo ? 1 : 0.4
-    }}
-  >
-    ↩
-  </button>
-  <button
-    onClick={redo}
-    disabled={!canRedo}
-    title="Redo (Ctrl + Y)"
-    style={{
-      background: isDark ? '#334155' : '#e2e8f0',
-      color: isDark ? '#f8fafc' : '#0f172a',
-      border: 'none',
-      borderRadius: '6px',
-      padding: '6px 10px',
-      fontSize: '12px',
-      fontWeight: 'bold',
-      cursor: canRedo ? 'pointer' : 'not-allowed',
-      opacity: canRedo ? 1 : 0.4
-    }}
-  >
-    ↪
-  </button>
-</div>
       </header>
 
       {/* Main Workspace */}
@@ -427,10 +590,10 @@ const {
             }
           />
         )}
-       {project.activeTab === '3d' && (
+        {project.activeTab === '3d' && (
           <div style={{ width: '100%', height: '100%' }}>
             <IsoflowComponent
-              key={`${project.updatedAt}-${project.cleanView.nodes.length}`}
+              key="isoflow-tab"
               initialData={convertProjectToIsoflowData(project)}
               editorMode="EDITABLE"
               width="100%"
@@ -439,6 +602,46 @@ const {
           </div>
         )}
       </main>
+
+      {/* Design Gallery & Collaborators Modal */}
+      <DesignGalleryModal
+        isOpen={isGalleryOpen}
+        theme={theme}
+        profile={profile}
+        designs={designs}
+        currentDesignId={currentDesignId}
+        onClose={() => setIsGalleryOpen(false)}
+        onSelectDesign={handleSelectDesign}
+        onRenameDesign={(id, newTitle) => setDesigns(renameDesign(id, newTitle))}
+        onDeleteDesign={(id) => {
+          if (confirm('Are you sure you want to delete this saved design?')) {
+            setDesigns(deleteDesign(id));
+            if (currentDesignId === id) setCurrentDesignId(null);
+          }
+        }}
+        onAddCollaborator={(designId, collab) => {
+          setDesigns(addCollaboratorToDesign(designId, collab));
+        }}
+        onRemoveCollaborator={(designId, collabId) => {
+          setDesigns(removeCollaborator(designId, collabId));
+        }}
+        onSaveProfile={(updatedProfile) => {
+          saveProfile(updatedProfile);
+          setProfile(updatedProfile);
+        }}
+      />
+
+      {/* Auth & Workspaces Modal */}
+      <AuthModal
+        isOpen={isAuthOpen}
+        theme={theme}
+        currentUser={currentUser}
+        onClose={() => setIsAuthOpen(false)}
+        onUserUpdate={(updated) => {
+          setCurrentUser(updated);
+          setSessionUser(updated);
+        }}
+      />
     </div>
   );
 }
