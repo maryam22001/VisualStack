@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useMemo, type ComponentType } from 'react'
 import * as IsoflowModule from 'isoflow';
 import { Architecture2D } from './Architecture2D';
 import { CleanArchitectureView } from './CleanArchitectureView';
-//import { initialData } from '../src/stackData';
 import {
   loadSavedProject,
   saveProjectToStorage,
@@ -32,7 +31,7 @@ import {
   getAllWorkspaces,
   type UserAccount
 } from './utils/authStorage';
-import { AuthModal } from './components/AuthModal';
+import { AuthScreens } from './pages/AuthScreens';
 
 // Safely resolve Isoflow component export across Vite ESM/CJS boundaries
 const getIsoflowComponent = (): ComponentType<Record<string, unknown>> => {
@@ -47,11 +46,16 @@ const getIsoflowComponent = (): ComponentType<Record<string, unknown>> => {
 const IsoflowComponent = getIsoflowComponent();
 
 export default function App() {
-  const initialProjectState = () => {
-    const fromUrl = decodeProjectFromHash();
-    if (fromUrl) return fromUrl;
-    return loadSavedProject();
-  };
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => getSessionUser());
+
+  // Determine active view: studio or auth onboarding funnel
+  const [activeScreen, setActiveScreen] = useState<'studio' | 'login' | 'signup' | 'verify' | 'create-workspace'>(() => {
+    const user = getSessionUser();
+    if (!user) return 'login';
+    if (!user.isEmailVerified) return 'verify';
+    if (!user.currentWorkspaceId || user.workspaces.length === 0) return 'create-workspace';
+    return 'studio';
+  });
 
   const {
     project,
@@ -61,7 +65,7 @@ export default function App() {
     redo,
     canUndo,
     canRedo
-  } = useProjectHistory(initialProjectState());
+  } = useProjectHistory(decodeProjectFromHash() || loadSavedProject());
 
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving'>('saved');
   const [theme, setTheme] = useState<'dark' | 'light'>('light');
@@ -74,17 +78,13 @@ export default function App() {
   const [currentDesignId, setCurrentDesignId] = useState<string | null>(null);
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
 
-  // Auth & Workspaces state
-  const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => getSessionUser());
-  const [isAuthOpen, setIsAuthOpen] = useState(false);
-
-  const currentWorkspaceName = useMemo(() => {
-    if (!currentUser?.currentWorkspaceId) return 'Personal Workspace';
-    const ws = getAllWorkspaces().find((w) => w.id === currentUser.currentWorkspaceId);
-    return ws?.name || 'Workspace';
+  // Active workspace calculation
+  const currentWorkspace = useMemo(() => {
+    if (!currentUser?.currentWorkspaceId) return null;
+    return getAllWorkspaces().find((w) => w.id === currentUser.currentWorkspaceId);
   }, [currentUser]);
 
-  // Auto-save & sync state
+  // Debounced auto-save to storage
   useEffect(() => {
     if (isFirstRender.current) {
       isFirstRender.current = false;
@@ -132,6 +132,22 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [undo, redo]);
 
+  // If user is unauthenticated, unverified, or lacks a workspace, show onboarding screen
+  if (activeScreen !== 'studio') {
+    return (
+      <AuthScreens
+        initialScreen={activeScreen}
+        currentUser={currentUser}
+        onNavigate={(screen) => setActiveScreen(screen)}
+        onUserChange={(updated) => {
+          setCurrentUser(updated);
+          setSessionUser(updated);
+        }}
+      />
+    );
+  }
+
+  // --- STUDIO CANVAS ACTIONS ---
   const updateTitle = (newTitle: string) => {
     updateProject((prev) => ({ ...prev, title: newTitle }));
   };
@@ -232,10 +248,12 @@ export default function App() {
     alert(`Design "${project.title}" saved successfully to your gallery!`);
   };
 
-  const handleSelectDesign = (saved: SavedDesign) => {
-    setProjectDirect(saved.project);
-    setCurrentDesignId(saved.id);
-    setIsGalleryOpen(false);
+  const handleSignOut = () => {
+    if (confirm('Log out from VisualStack?')) {
+      setSessionUser(null);
+      setCurrentUser(null);
+      setActiveScreen('login');
+    }
   };
 
   const isDark = theme === 'dark';
@@ -266,12 +284,24 @@ export default function App() {
           flexShrink: 0
         }}
       >
-        {/* Left Section: Brand & Title */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        {/* Left Section: Brand, Workspace & Editable Title */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <span style={{ fontSize: '18px', fontWeight: '800', color: '#0284c7' }}>
             VisualStack
           </span>
           <span style={{ color: isDark ? '#475569' : '#cbd5e1' }}>/</span>
+          <span
+            style={{
+              fontSize: '11px',
+              background: isDark ? '#0f172a' : '#e0f2fe',
+              color: '#0284c7',
+              padding: '4px 8px',
+              borderRadius: '6px',
+              fontWeight: '700'
+            }}
+          >
+            🏢 {currentWorkspace?.name || 'Workspace'}
+          </span>
           <input
             type="text"
             value={project.title}
@@ -285,7 +315,7 @@ export default function App() {
               background: 'transparent',
               color: isDark ? '#f8fafc' : '#0f172a',
               outline: 'none',
-              maxWidth: '180px'
+              maxWidth: '160px'
             }}
           />
           <span style={{ fontSize: '11px', color: saveStatus === 'saving' ? '#d97706' : '#16a34a' }}>
@@ -325,7 +355,6 @@ export default function App() {
             ))}
           </div>
 
-          {/* Undo / Redo Buttons */}
           <div style={{ display: 'flex', gap: '4px' }}>
             <button
               onClick={undo}
@@ -366,66 +395,8 @@ export default function App() {
           </div>
         </div>
 
-        {/* Right Section: Workspace, Auth, Actions & Exports */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {/* User Account & Workspace Trigger */}
-          {currentUser ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <button
-                onClick={() => setIsAuthOpen(true)}
-                title="Manage Workspaces"
-                style={{
-                  background: isDark ? '#0f172a' : '#f1f5f9',
-                  border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
-                  color: '#0284c7',
-                  padding: '5px 10px',
-                  borderRadius: '6px',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  cursor: 'pointer'
-                }}
-              >
-                🏢 {currentWorkspaceName}
-              </button>
-              <button
-                onClick={() => {
-                  if (confirm(`Signed in as ${currentUser.email}. Do you want to log out?`)) {
-                    setSessionUser(null);
-                    setCurrentUser(null);
-                  }
-                }}
-                style={{
-                  background: currentUser.isEmailVerified ? '#10b981' : '#f59e0b',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '6px',
-                  padding: '5px 8px',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  cursor: 'pointer'
-                }}
-              >
-                {currentUser.name} {currentUser.isEmailVerified ? '✓' : '(Verify)'}
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setIsAuthOpen(true)}
-              style={{
-                background: '#0284c7',
-                color: '#fff',
-                border: 'none',
-                padding: '5px 10px',
-                borderRadius: '6px',
-                fontSize: '12px',
-                fontWeight: 600,
-                cursor: 'pointer'
-              }}
-            >
-              Sign In
-            </button>
-          )}
-
+        {/* Right Section: Workspace, Save, Gallery & Exports */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <input
             type="file"
             ref={fileInputRef}
@@ -463,19 +434,18 @@ export default function App() {
               cursor: 'pointer'
             }}
           >
-            📁 Designs ({designs.length})
+            📁 Gallery ({designs.length})
           </button>
 
           <button
             onClick={handleCopyShareLink}
             style={{
-              background: '#0284c7',
-              color: '#fff',
+              background: isDark ? '#334155' : '#e2e8f0',
+              color: isDark ? '#f8fafc' : '#0f172a',
               border: 'none',
               padding: '6px 10px',
               borderRadius: '6px',
               fontSize: '12px',
-              fontWeight: '600',
               cursor: 'pointer'
             }}
           >
@@ -496,22 +466,6 @@ export default function App() {
             }}
           >
             PNG
-          </button>
-
-          <button
-            onClick={() => handleExportPng(true)}
-            title="Copy image to clipboard"
-            style={{
-              background: isDark ? '#334155' : '#e2e8f0',
-              color: isDark ? '#f8fafc' : '#0f172a',
-              border: 'none',
-              padding: '6px 8px',
-              borderRadius: '6px',
-              fontSize: '12px',
-              cursor: 'pointer'
-            }}
-          >
-            📋
           </button>
 
           <button
@@ -558,10 +512,28 @@ export default function App() {
           >
             {isDark ? '☀️' : '🌙'}
           </button>
+
+          <button
+            onClick={handleSignOut}
+            title={`Signed in as ${currentUser?.name}`}
+            style={{
+              background: 'transparent',
+              border: `1px solid #ef4444`,
+              color: '#ef4444',
+              padding: '5px 8px',
+              borderRadius: '6px',
+              fontSize: '11px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              marginLeft: '4px'
+            }}
+          >
+            Log Out
+          </button>
         </div>
       </header>
 
-      {/* Main Workspace */}
+      {/* Main Studio Workspace */}
       <main style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
         {project.activeTab === 'clean' && (
           <CleanArchitectureView
@@ -611,10 +583,14 @@ export default function App() {
         designs={designs}
         currentDesignId={currentDesignId}
         onClose={() => setIsGalleryOpen(false)}
-        onSelectDesign={handleSelectDesign}
+        onSelectDesign={(d) => {
+          setProjectDirect(d.project);
+          setCurrentDesignId(d.id);
+          setIsGalleryOpen(false);
+        }}
         onRenameDesign={(id, newTitle) => setDesigns(renameDesign(id, newTitle))}
         onDeleteDesign={(id) => {
-          if (confirm('Are you sure you want to delete this saved design?')) {
+          if (confirm('Delete this design from the gallery?')) {
             setDesigns(deleteDesign(id));
             if (currentDesignId === id) setCurrentDesignId(null);
           }
@@ -628,18 +604,6 @@ export default function App() {
         onSaveProfile={(updatedProfile) => {
           saveProfile(updatedProfile);
           setProfile(updatedProfile);
-        }}
-      />
-
-      {/* Auth & Workspaces Modal */}
-      <AuthModal
-        isOpen={isAuthOpen}
-        theme={theme}
-        currentUser={currentUser}
-        onClose={() => setIsAuthOpen(false)}
-        onUserUpdate={(updated) => {
-          setCurrentUser(updated);
-          setSessionUser(updated);
         }}
       />
     </div>

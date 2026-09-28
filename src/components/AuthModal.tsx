@@ -10,7 +10,13 @@ import {
   type UserAccount,
   type Workspace
 } from '../utils/authStorage';
-
+import {
+  getSessionUser,
+  setSessionUser,
+  getAllWorkspaces,
+  type UserAccount
+} from './utils/authStorage';
+import { AuthScreens } from './pages/AuthScreens';
 interface AuthModalProps {
   isOpen: boolean;
   theme: 'dark' | 'light';
