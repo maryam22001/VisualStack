@@ -1,0 +1,57 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id                     String             @id @default(uuid())
+  email                  String             @unique
+  passwordHash           String
+  fullName               String
+  isVerified             Boolean            @default(false)
+  verificationCode       String?
+  verificationExpiresAt  DateTime?
+  ownedWorkspaces        Workspace[]        @relation("WorkspaceOwner")
+  memberships            WorkspaceMember[]
+  designsCreated         Design[]
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+}
+
+model Workspace {
+  id          String            @id @default(uuid())
+  name        String
+  ownerId     String
+  owner       User              @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members     WorkspaceMember[]
+  designs     Design[]
+  createdAt   DateTime          @default(now())
+}
+
+model WorkspaceMember {
+  workspaceId String
+  userId      String
+  role        String            @default("member")
+  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, userId])
+}
+
+model Design {
+  id           String    @id @default(uuid())
+  workspaceId  String
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdById  String?
+  createdBy    User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  title        String    @default("Untitled Architecture")
+  viewMode     String    @default("clean")
+  theme        String    @default("light")
+  graphData    Json      @default("{\"nodes\": [], \"clusters\": [], \"connectors\": []}")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
