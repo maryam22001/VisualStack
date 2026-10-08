@@ -10,3 +10,173 @@ html, body, #root {
   overflow: hidden;
   display: block; /* Vite defaults to display: flex which collapses heights */
 }
+/* Sign in / Sign up / Verify - styled with the studio's own palette.
+   Everything is scoped under .vs-auth so it can't leak into (or be broken by)
+   the global Vite-template rules in index.css (centered text, 18px base, etc). */
+
+.vs-auth {
+  --ink: #0f172a;
+  --slate-800: #1e293b;
+  --slate-700: #334155;
+  --slate-600: #475569;
+  --slate-500: #64748b;
+  --slate-400: #94a3b8;
+  --slate-300: #cbd5e1;
+  --slate-200: #e2e8f0;
+  --slate-100: #f1f5f9;
+  --slate-50: #f8fafc;
+  --sky-50: #f0f9ff;
+  --sky-100: #e0f2fe;
+  --sky-500: #0ea5e9;
+  --sky-600: #0284c7;
+  --sky-700: #0369a1;
+  --danger: #b91c1c;
+  --danger-bg: #fef2f2;
+  --danger-border: #fecaca;
+  --warn: #b45309;
+  --warn-bg: #fffbeb;
+  --warn-border: #fde68a;
+
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  background: var(--slate-50);
+  color: var(--ink);
+  color-scheme: light;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  letter-spacing: normal;
+  text-align: left;
+  -webkit-font-smoothing: antialiased;
+}
+.vs-auth *, .vs-auth *::before, .vs-auth *::after { box-sizing: border-box; }
+:where(.vs-auth h1, .vs-auth h2, .vs-auth p) { margin: 0; font-family: inherit; letter-spacing: normal; text-align: left; }
+.vs-auth button { font-family: inherit; }
+
+/* ---------- Left brand panel ---------- */
+.vs-auth__brand {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 40px 48px;
+  color: #fff;
+  background: linear-gradient(160deg, var(--ink) 0%, var(--slate-800) 100%);
+}
+/* dotted grid, like the studio canvas */
+.vs-auth__brand::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(148, 163, 184, 0.22) 1px, transparent 1px);
+  background-size: 22px 22px;
+  mask-image: linear-gradient(180deg, rgba(0,0,0,0.9), rgba(0,0,0,0.15));
+  -webkit-mask-image: linear-gradient(180deg, rgba(0,0,0,0.9), rgba(0,0,0,0.15));
+  pointer-events: none;
+}
+.vs-auth__brand > * { position: relative; }
+
+.vs-auth__logo { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 700; letter-spacing: -0.2px; }
+.vs-auth__logo svg { width: 30px; height: 30px; }
+
+.vs-auth__hero h1 { font-size: 34px; line-height: 1.15; font-weight: 700; letter-spacing: -0.8px; color: #fff; }
+.vs-auth__hero h1 span { color: #38bdf8; }
+.vs-auth__hero p { margin-top: 14px; max-width: 420px; font-size: 15px; color: var(--slate-300); }
+
+.vs-auth__features { margin: 28px 0 0; padding: 0; list-style: none; display: grid; gap: 12px; }
+.vs-auth__features li { display: flex; align-items: center; gap: 12px; font-size: 14px; color: var(--slate-200); }
+.vs-auth__features i {
+  flex: none; width: 22px; height: 22px; border-radius: 6px;
+  display: grid; place-items: center; font-style: normal; font-size: 12px; font-weight: 700;
+  color: #7dd3fc; background: rgba(2, 132, 199, 0.22); border: 1px solid rgba(56, 189, 248, 0.35);
+}
+.vs-auth__art { position: absolute !important; right: -30px; bottom: -10px; width: 380px; opacity: 0.95; pointer-events: none; }
+.vs-auth__foot { font-size: 12px; color: var(--slate-400); }
+
+/* ---------- Right form side ---------- */
+.vs-auth__side { position: relative; display: flex; align-items: center; justify-content: center; padding: 32px 24px; overflow-y: auto; }
+.vs-auth__guest {
+  position: absolute; top: 20px; right: 24px; background: none; border: 0; cursor: pointer;
+  font-size: 13px; color: var(--slate-500);
+}
+.vs-auth__guest:hover { color: var(--sky-700); }
+
+.vs-auth__card {
+  width: 100%; max-width: 400px; background: #fff; border: 1px solid var(--slate-200);
+  border-radius: 14px; padding: 32px; box-shadow: 0 10px 30px -12px rgba(15, 23, 42, 0.12);
+}
+.vs-auth__mobile-logo { display: none; align-items: center; gap: 8px; margin-bottom: 20px; font-weight: 700; font-size: 16px; }
+.vs-auth__mobile-logo svg { width: 24px; height: 24px; }
+
+.vs-auth__title { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; color: var(--ink); }
+.vs-auth__subtitle { margin-top: 6px; margin-bottom: 22px; color: var(--slate-500); font-size: 14px; }
+.vs-auth__subtitle b { color: var(--ink); font-weight: 600; overflow-wrap: anywhere; }
+
+.vs-auth__form { display: grid; gap: 16px; }
+.vs-auth__field label { display: block; margin-bottom: 6px; font-size: 12px; font-weight: 600; color: var(--slate-700); }
+.vs-auth__input-wrap { position: relative; }
+.vs-auth__input {
+  width: 100%; height: 42px; padding: 0 12px; font: inherit; font-size: 14px; color: var(--ink);
+  background: #fff; border: 1px solid var(--slate-300); border-radius: 8px; outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+.vs-auth__input::placeholder { color: var(--slate-400); }
+.vs-auth__input:hover { border-color: var(--slate-400); }
+.vs-auth__input:focus { border-color: var(--sky-600); box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.18); }
+.vs-auth__input--pw { padding-right: 56px; }
+.vs-auth__toggle {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: none; border: 0;
+  padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; color: var(--slate-500);
+}
+.vs-auth__toggle:hover { color: var(--sky-700); background: var(--slate-100); }
+.vs-auth__hint { margin-top: 6px; font-size: 12px; color: var(--slate-500); }
+
+.vs-auth__btn {
+  height: 42px; width: 100%; border: 0; border-radius: 8px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  font-size: 14px; font-weight: 600; color: #fff; background: var(--sky-600);
+  transition: background .15s, transform .05s, box-shadow .15s;
+  box-shadow: 0 1px 2px rgba(2, 132, 199, 0.35);
+}
+.vs-auth__btn:hover:not(:disabled) { background: var(--sky-700); }
+.vs-auth__btn:active:not(:disabled) { transform: translateY(1px); }
+.vs-auth__btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.35); }
+.vs-auth__btn:disabled { opacity: 0.65; cursor: not-allowed; }
+
+.vs-auth__spinner {
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.45); border-top-color: #fff; animation: vs-auth-spin .7s linear infinite;
+}
+@keyframes vs-auth-spin { to { transform: rotate(360deg); } }
+
+.vs-auth__alert { display: flex; gap: 8px; margin-bottom: 16px; padding: 10px 12px; font-size: 13px; border-radius: 8px; border: 1px solid; }
+.vs-auth__alert--error { color: var(--danger); background: var(--danger-bg); border-color: var(--danger-border); }
+.vs-auth__alert--warn { color: var(--warn); background: var(--warn-bg); border-color: var(--warn-border); }
+
+.vs-auth__switch { margin-top: 20px; text-align: center; font-size: 13px; color: var(--slate-500); }
+.vs-auth__link { background: none; border: 0; padding: 0; cursor: pointer; font-size: inherit; font-weight: 600; color: var(--sky-600); }
+.vs-auth__link:hover:not(:disabled) { color: var(--sky-700); text-decoration: underline; }
+.vs-auth__link:disabled { color: var(--slate-400); cursor: default; }
+
+/* ---------- 6-digit code ---------- */
+.vs-auth__otp { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+.vs-auth__otp input {
+  width: 100%; height: 52px; padding: 0; text-align: center; font: inherit; font-size: 22px; font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--sky-700);
+  background: var(--sky-50); border: 1px solid var(--slate-300); border-radius: 10px; outline: none;
+  transition: border-color .15s, box-shadow .15s, background .15s;
+}
+.vs-auth__otp input:focus { background: #fff; border-color: var(--sky-600); box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.18); }
+.vs-auth__otp--error input { border-color: #f87171; background: var(--danger-bg); }
+
+/* ---------- Responsive ---------- */
+@media (max-width: 900px) {
+  .vs-auth { grid-template-columns: minmax(0, 1fr); }
+  .vs-auth__brand { display: none; }
+  .vs-auth__mobile-logo { display: flex; }
+  .vs-auth__card { padding: 24px; }
+}

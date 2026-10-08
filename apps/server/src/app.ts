@@ -13,8 +13,10 @@ app.use(cookieParser());
 // Auth routes
 app.post('/api/auth/register', authCtrl.register);
 app.post('/api/auth/verify', authCtrl.verifyOtp);
+app.post('/api/auth/resend', authCtrl.resendCode);
 app.post('/api/auth/login', authCtrl.login);
-
+app.post('/api/auth/forgot-password', authCtrl.forgotPassword);
+app.post('/api/auth/reset-password', authCtrl.resetPassword);
 // Design persistence routes
 app.get('/api/workspaces/:workspaceId/designs', designCtrl.getWorkspaceDesigns);
 app.post('/api/designs', designCtrl.saveDesign);
