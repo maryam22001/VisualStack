@@ -14,7 +14,5 @@ export default defineConfig({
   optimizeDeps: {
     include: ['react', 'react-dom', 'isoflow']
   },
-  server: {
-    port: 5174
-  }
+  server: { port: 5174, proxy: { '/api': 'http://localhost:5000' } }
 });
