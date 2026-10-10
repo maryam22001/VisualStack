@@ -1,6 +1,3 @@
-/* Sign in / Sign up / Verify - styled with the studio's own palette.
-   Everything is scoped under .vs-auth so it can't leak into (or be broken by)
-   the global Vite-template rules in index.css (centered text, 18px base, etc). */
 
 .vs-auth {
     --ink: #0f172a;
@@ -459,4 +456,41 @@
     .vs-auth__card {
         padding: 24px;
     }
+}
+
+/* ---------- Added for forgot / reset password ---------- */
+.vs-auth__label-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 6px;
+}
+
+.vs-auth__label-row label {
+    margin: 0;
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--slate-700);
+}
+
+.vs-auth__link--small {
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.vs-auth__link--muted {
+    margin-top: 8px;
+    font-weight: 500;
+    color: var(--slate-500);
+}
+
+.vs-auth__link--muted:hover:not(:disabled) {
+    color: var(--sky-700);
+}
+
+.vs-auth__alert--ok {
+    color: #166534;
+    background: #f0fdf4;
+    border-color: #bbf7d0;
 }

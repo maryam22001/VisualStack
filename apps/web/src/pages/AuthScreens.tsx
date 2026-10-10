@@ -1,20 +1,30 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { apiLogin, apiRegister, apiVerifyOtp, apiResendCode, ApiError } from '../api/client';
+import {
+  apiForgotPassword,
+  apiLogin,
+  apiRegister,
+  apiResendCode,
+  apiResetPassword,
+  apiVerifyOtp,
+  ApiError
+} from '../api/client';
 import { useAuth } from '../hooks/useAuth';
 import './auth.css';
 
 export type AuthScreenType = 'studio' | 'login' | 'signup' | 'verify' | 'create-workspace';
 
-// Same props as before so App.tsx keeps working unchanged.
 export interface AuthScreensProps {
-  initialScreen: 'login' | 'signup' | 'verify' | 'create-workspace';
+  initialScreen?: 'login' | 'signup' | 'verify' | 'create-workspace';
   currentUser?: any;
+  /** Called with 'studio' when the visitor chooses "Continue without an account". */
   onNavigate: (screen: AuthScreenType) => void;
   onLoginSuccess?: (user: any) => void;
   onClose?: () => void;
 }
 
-type Screen = 'login' | 'signup' | 'verify';
+type Screen = 'login' | 'signup' | 'verify' | 'forgot' | 'reset';
+
+const RESEND_SECONDS = 30;
 
 /* ---------- Small presentational pieces ---------- */
 
@@ -59,6 +69,8 @@ interface FieldProps {
   placeholder?: string;
   hint?: string;
   autoFocus?: boolean;
+  /** Rendered on the right of the label row, e.g. a "Forgot password?" link. */
+  labelRight?: React.ReactNode;
 }
 
 const Field: React.FC<FieldProps> = ({ id, label, type = 'text', value, onChange, autoComplete, placeholder, hint, autoFocus }) => (
@@ -79,11 +91,14 @@ const Field: React.FC<FieldProps> = ({ id, label, type = 'text', value, onChange
   </div>
 );
 
-const PasswordField: React.FC<Omit<FieldProps, 'type'>> = ({ id, label, value, onChange, autoComplete, placeholder, hint }) => {
+const PasswordField: React.FC<Omit<FieldProps, 'type'>> = ({ id, label, value, onChange, autoComplete, placeholder, hint, labelRight }) => {
   const [visible, setVisible] = useState(false);
   return (
     <div className="vs-auth__field">
-      <label htmlFor={id}>{label}</label>
+      <div className="vs-auth__label-row">
+        <label htmlFor={id}>{label}</label>
+        {labelRight}
+      </div>
       <div className="vs-auth__input-wrap">
         <input
           id={id}
@@ -104,31 +119,37 @@ const PasswordField: React.FC<Omit<FieldProps, 'type'>> = ({ id, label, value, o
   );
 };
 
-// Six boxes: auto-advance, backspace-to-previous, paste a whole code, submit when full.
-const OtpInput: React.FC<{ onComplete: (code: string) => void; disabled?: boolean; hasError?: boolean; resetKey: number }> = ({
-  onComplete,
-  disabled,
-  hasError,
-  resetKey
-}) => {
+// Six boxes: auto-advance, backspace-to-previous, paste a whole code.
+//  - onChange fires on every edit with the digits entered so far (may be < 6 long)
+//  - onComplete fires once, when all six boxes are filled
+const OtpInput: React.FC<{
+  onChange?: (code: string) => void;
+  onComplete?: (code: string) => void;
+  disabled?: boolean;
+  hasError?: boolean;
+  resetKey: number;
+}> = ({ onChange, onComplete, disabled, hasError, resetKey }) => {
   const [digits, setDigits] = useState<string[]>(Array(6).fill(''));
   const refs = useRef<Array<HTMLInputElement | null>>([]);
 
   useEffect(() => {
     setDigits(Array(6).fill(''));
+    onChange?.('');
     refs.current[0]?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetKey]);
 
-  const commit = (next: string[]) => {
+  const update = (next: string[]) => {
     setDigits(next);
-    if (next.every((d) => d !== '')) onComplete(next.join(''));
+    onChange?.(next.join(''));
+    if (onComplete && next.every((d) => d !== '')) onComplete(next.join(''));
   };
 
   const handleChange = (i: number, raw: string) => {
     const d = raw.replace(/\D/g, '').slice(-1);
     const next = digits.slice();
     next[i] = d;
-    commit(next);
+    update(next);
     if (d && i < 5) refs.current[i + 1]?.focus();
   };
 
@@ -136,7 +157,7 @@ const OtpInput: React.FC<{ onComplete: (code: string) => void; disabled?: boolea
     if (e.key === 'Backspace' && !digits[i] && i > 0) {
       const next = digits.slice();
       next[i - 1] = '';
-      setDigits(next);
+      update(next);
       refs.current[i - 1]?.focus();
     } else if (e.key === 'ArrowLeft' && i > 0) refs.current[i - 1]?.focus();
     else if (e.key === 'ArrowRight' && i < 5) refs.current[i + 1]?.focus();
@@ -148,12 +169,12 @@ const OtpInput: React.FC<{ onComplete: (code: string) => void; disabled?: boolea
     e.preventDefault();
     const next = Array(6).fill('');
     pasted.split('').forEach((d, idx) => (next[idx] = d));
-    commit(next);
+    update(next);
     refs.current[Math.min(pasted.length, 5)]?.focus();
   };
 
   return (
-    <div className={`vs-auth__otp${hasError ? ' vs-auth__otp--error' : ''}`} role="group" aria-label="6-digit verification code">
+    <div className={`vs-auth__otp${hasError ? ' vs-auth__otp--error' : ''}`} role="group" aria-label="6-digit code">
       {digits.map((d, i) => (
         <input
           key={i}
@@ -187,8 +208,14 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({ initialScreen, onNavig
   const [password, setPassword] = useState('');
   const [pendingUserId, setPendingUserId] = useState<string | null>(null);
 
+  // password reset
+  const [resetCode, setResetCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [resendIn, setResendIn] = useState(0);
@@ -203,17 +230,20 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({ initialScreen, onNavig
   const go = (next: Screen) => {
     setError(null);
     setNotice(null);
+    setSuccess(null);
     setInfo(null);
     setScreen(next);
   };
 
+  // Signing in updates the auth context; App.tsx reacts to `user` and shows the studio
+  // for that user's workspace. No manual navigation needed.
   const finish = (user: any) => {
     setUser(user);
     if (onLoginSuccess) onLoginSuccess(user);
-    onNavigate('studio');
     if (onClose) onClose();
   };
 
+  /* ----- sign up ----- */
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -226,8 +256,9 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({ initialScreen, onNavig
       const res = await apiRegister(fullName.trim(), email.trim(), password);
       setPendingUserId(res.user.id);
       setNotice(res.emailSent ? null : "We couldn't send the verification email. Try \u201CResend code\u201D in a moment.");
-      setResendIn(30);
+      setResendIn(RESEND_SECONDS);
       setInfo(null);
+      setOtpKey((k) => k + 1);
       setScreen('verify');
     } catch (err: any) {
       setError(err.message || 'Registration failed');
@@ -236,19 +267,22 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({ initialScreen, onNavig
     }
   };
 
+  /* ----- sign in (and the unverified-user path) ----- */
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setSuccess(null);
     setLoading(true);
     try {
       const res = await apiLogin(email.trim(), password);
       finish(res.user);
     } catch (err: any) {
       if (err instanceof ApiError && err.data?.needsVerification) {
-        // Correct password, but the email was never confirmed.
+        // Correct password, but the email was never confirmed: enter the code, or ask for a new one.
         setPendingUserId(err.data.userId);
-        setNotice('Please verify your email to continue. Request a new code below if yours has expired.');
+        setNotice('Please verify your email to continue. Enter the code we sent you, or request a new one below.');
         setResendIn(0);
+        setOtpKey((k) => k + 1);
         setScreen('verify');
       } else {
         setError(err.message || 'Login failed');
@@ -258,6 +292,7 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({ initialScreen, onNavig
     }
   };
 
+  /* ----- verify email ----- */
   const handleVerify = async (code: string) => {
     if (!pendingUserId || loading) return;
     setError(null);
@@ -276,13 +311,14 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({ initialScreen, onNavig
     }
   };
 
-  const handleResend = async () => {
-    if (!pendingUserId || resendIn > 0) return;
+  const handleResendVerification = async () => {
+    if (resendIn > 0) return;
     setError(null);
     setInfo(null);
     try {
-      const res = await apiResendCode(pendingUserId);
-      setResendIn(30);
+      const res = await apiResendCode(email.trim());
+      setResendIn(RESEND_SECONDS);
+      setOtpKey((k) => k + 1);
       if (res.emailSent) {
         setNotice(null);
         setInfo('A new code is on its way.');
@@ -292,6 +328,65 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({ initialScreen, onNavig
     } catch (err: any) {
       if (err instanceof ApiError && err.data?.retryAfter) setResendIn(err.data.retryAfter);
       setError(err.message || 'Could not resend the code');
+    }
+  };
+
+  /* ----- forgot / reset password ----- */
+  const handleForgot = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      await apiForgotPassword(email.trim());
+      // The server answers identically whether or not the account exists.
+      setResetCode('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setOtpKey((k) => k + 1);
+      setNotice(null);
+      setInfo(null);
+      setResendIn(RESEND_SECONDS);
+      setScreen('reset');
+    } catch (err: any) {
+      setError(err.message || 'Could not start the password reset');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendReset = async () => {
+    if (resendIn > 0) return;
+    setError(null);
+    setInfo(null);
+    try {
+      await apiForgotPassword(email.trim());
+      setResendIn(RESEND_SECONDS);
+      setInfo('If that email has an account, a new code is on its way.');
+    } catch (err: any) {
+      setError(err.message || 'Could not resend the code');
+    }
+  };
+
+  const handleReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (resetCode.length !== 6) return setError('Enter the 6-digit code from your email.');
+    if (newPassword.length < 8) return setError('Password must be at least 8 characters.');
+    if (newPassword !== confirmPassword) return setError('Passwords do not match.');
+
+    setLoading(true);
+    try {
+      await apiResetPassword(email.trim(), resetCode, newPassword);
+      setPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      go('login');
+      setSuccess('Password updated. Sign in with your new password.');
+    } catch (err: any) {
+      setError(err.message || 'Could not reset the password');
+      setOtpKey((k) => k + 1);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -305,8 +400,24 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({ initialScreen, onNavig
           We sent a 6-digit code to <b>{email || 'your inbox'}</b>. Enter it below to finish setting up your account.
         </>
       )
+    },
+    forgot: { h: 'Forgot your password?', p: "Enter your email and we'll send you a 6-digit code to reset it." },
+    reset: {
+      h: 'Reset your password',
+      p: (
+        <>
+          Enter the 6-digit code we sent to <b>{email}</b> and choose a new password.
+        </>
+      )
     }
   };
+
+  const submitLabel = (idle: string, busy: string) => (
+    <>
+      {loading && <Spinner />}
+      {loading ? busy : idle}
+    </>
+  );
 
   return (
     <div className="vs-auth">
@@ -323,7 +434,7 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({ initialScreen, onNavig
           </h1>
           <p>Drag, connect and ship clear architecture diagrams &mdash; no layout fights, no syntax to memorise.</p>
           <ul className="vs-auth__features">
-            <li><i>✓</i> Drag-and-drop canvas with smart alignment</li>
+            <li><i>✓</i> Drag-and-drop canvas with snap-to-grid</li>
             <li><i>✓</i> Clean, detailed 2D and 3D isometric views</li>
             <li><i>✓</i> Searchable icon library for any tool</li>
             <li><i>✓</i> Export to SVG &amp; PNG, share by link</li>
@@ -356,6 +467,11 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({ initialScreen, onNavig
           <h2 className="vs-auth__title">{titles[screen].h}</h2>
           <p className="vs-auth__subtitle">{titles[screen].p}</p>
 
+          {success && (
+            <div className="vs-auth__alert vs-auth__alert--ok" role="status">
+              {success}
+            </div>
+          )}
           {notice && (
             <div className="vs-auth__alert vs-auth__alert--warn" role="status">
               {notice}
@@ -367,14 +483,26 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({ initialScreen, onNavig
             </div>
           )}
 
+          {/* ---------------- Sign in ---------------- */}
           {screen === 'login' && (
             <>
               <form className="vs-auth__form" onSubmit={handleLogin}>
                 <Field id="login-email" label="Email" type="email" value={email} onChange={setEmail} autoComplete="email" placeholder="you@company.com" autoFocus />
-                <PasswordField id="login-password" label="Password" value={password} onChange={setPassword} autoComplete="current-password" placeholder="Your password" />
+                <PasswordField
+                  id="login-password"
+                  label="Password"
+                  value={password}
+                  onChange={setPassword}
+                  autoComplete="current-password"
+                  placeholder="Your password"
+                  labelRight={
+                    <button type="button" className="vs-auth__link vs-auth__link--small" onClick={() => go('forgot')}>
+                      Forgot password?
+                    </button>
+                  }
+                />
                 <button type="submit" className="vs-auth__btn" disabled={loading}>
-                  {loading && <Spinner />}
-                  {loading ? 'Signing in…' : 'Sign in'}
+                  {submitLabel('Sign in', 'Signing in…')}
                 </button>
               </form>
               <p className="vs-auth__switch">
@@ -386,6 +514,7 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({ initialScreen, onNavig
             </>
           )}
 
+          {/* ---------------- Sign up ---------------- */}
           {screen === 'signup' && (
             <>
               <form className="vs-auth__form" onSubmit={handleRegister}>
@@ -393,8 +522,7 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({ initialScreen, onNavig
                 <Field id="signup-email" label="Work email" type="email" value={email} onChange={setEmail} autoComplete="email" placeholder="you@company.com" />
                 <PasswordField id="signup-password" label="Password" value={password} onChange={setPassword} autoComplete="new-password" placeholder="At least 8 characters" hint="Use 8 or more characters." />
                 <button type="submit" className="vs-auth__btn" disabled={loading}>
-                  {loading && <Spinner />}
-                  {loading ? 'Creating account…' : 'Create account'}
+                  {submitLabel('Create account', 'Creating account…')}
                 </button>
               </form>
               <p className="vs-auth__switch">
@@ -406,23 +534,73 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({ initialScreen, onNavig
             </>
           )}
 
+          {/* ---------------- Verify email (also the unverified-login path) ---------------- */}
           {screen === 'verify' && (
             <>
               <div className="vs-auth__form">
                 <OtpInput onComplete={handleVerify} disabled={loading} hasError={!!error} resetKey={otpKey} />
-                <button type="button" className="vs-auth__btn" disabled style={{ display: loading ? 'inline-flex' : 'none' }}>
-                  <Spinner /> Verifying…
-                </button>
+                {loading && (
+                  <p className="vs-auth__hint" role="status">
+                    Verifying…
+                  </p>
+                )}
                 {info && <p className="vs-auth__hint">{info}</p>}
               </div>
               <p className="vs-auth__switch">
                 Didn&rsquo;t get it?{' '}
-                <button type="button" className="vs-auth__link" onClick={handleResend} disabled={resendIn > 0}>
+                <button type="button" className="vs-auth__link" onClick={handleResendVerification} disabled={resendIn > 0}>
                   {resendIn > 0 ? `Resend code in ${resendIn}s` : 'Resend code'}
                 </button>
                 <br />
-                <button type="button" className="vs-auth__link" style={{ marginTop: 8, fontWeight: 500 }} onClick={() => go('signup')}>
-                  Use a different email
+                <button type="button" className="vs-auth__link vs-auth__link--muted" onClick={() => go('login')}>
+                  Back to sign in
+                </button>
+              </p>
+            </>
+          )}
+
+          {/* ---------------- Forgot password: ask for email ---------------- */}
+          {screen === 'forgot' && (
+            <>
+              <form className="vs-auth__form" onSubmit={handleForgot}>
+                <Field id="forgot-email" label="Email" type="email" value={email} onChange={setEmail} autoComplete="email" placeholder="you@company.com" autoFocus />
+                <button type="submit" className="vs-auth__btn" disabled={loading}>
+                  {submitLabel('Send reset code', 'Sending…')}
+                </button>
+              </form>
+              <p className="vs-auth__switch">
+                <button type="button" className="vs-auth__link" onClick={() => go('login')}>
+                  &larr; Back to sign in
+                </button>
+              </p>
+            </>
+          )}
+
+          {/* ---------------- Reset password: code + new password ---------------- */}
+          {screen === 'reset' && (
+            <>
+              <form className="vs-auth__form" onSubmit={handleReset}>
+                <div className="vs-auth__field">
+                  <div className="vs-auth__label-row">
+                    <label>Reset code</label>
+                  </div>
+                  <OtpInput onChange={setResetCode} disabled={loading} hasError={!!error && resetCode.length === 0} resetKey={otpKey} />
+                </div>
+                <PasswordField id="reset-new" label="New password" value={newPassword} onChange={setNewPassword} autoComplete="new-password" placeholder="At least 8 characters" />
+                <PasswordField id="reset-confirm" label="Confirm new password" value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" placeholder="Repeat the new password" />
+                <button type="submit" className="vs-auth__btn" disabled={loading}>
+                  {submitLabel('Reset password', 'Updating…')}
+                </button>
+                {info && <p className="vs-auth__hint">{info}</p>}
+              </form>
+              <p className="vs-auth__switch">
+                Didn&rsquo;t get a code?{' '}
+                <button type="button" className="vs-auth__link" onClick={handleResendReset} disabled={resendIn > 0}>
+                  {resendIn > 0 ? `Resend code in ${resendIn}s` : 'Resend code'}
+                </button>
+                <br />
+                <button type="button" className="vs-auth__link vs-auth__link--muted" onClick={() => go('login')}>
+                  Back to sign in
                 </button>
               </p>
             </>

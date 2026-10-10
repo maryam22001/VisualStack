@@ -15,6 +15,10 @@ model User {
   isVerified             Boolean            @default(false)
   verificationCode       String?
   verificationExpiresAt  DateTime?
+  verificationAttempts   Int                @default(0)
+  resetCode              String?
+  resetExpiresAt         DateTime?
+  resetAttempts          Int                @default(0)
   ownedWorkspaces        Workspace[]        @relation("WorkspaceOwner")
   memberships            WorkspaceMember[]
   designsCreated         Design[]

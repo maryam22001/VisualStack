@@ -2,7 +2,8 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig({
- 
+  // Set VITE_BASE_PATH=/VisualStack/ when hosting under a GitHub Pages project URL
+  base: process.env.VITE_BASE_PATH || '/',
   plugins: [react()],
   define: {
     // Polyfill process.env so Isoflow's internal webpack bundle doesn't choke

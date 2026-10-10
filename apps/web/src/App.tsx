@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, type ComponentType } from 'react';
+import { useState, useEffect, useRef, type ComponentType } from 'react';
 import * as IsoflowModule from 'isoflow';
 import { Architecture2D } from './views/Architecture2D';
 import { CleanArchitectureView } from './views/CleanArchitectureView';
@@ -25,12 +25,7 @@ import {
   type UserProfile
 } from './utils/designStorage';
 import { DesignGalleryModal } from './components/DesignGalleryModal';
-import {
-  getSessionUser,
-  setSessionUser,
-  getAllWorkspaces,
-  type UserAccount
-} from './utils/authStorage';
+import { useAuth } from './hooks/useAuth';
 import { AuthScreens, type AuthScreenType } from './pages/AuthScreens';
 
 // Safely resolve Isoflow component export across Vite ESM/CJS boundaries
@@ -46,16 +41,12 @@ const getIsoflowComponent = (): ComponentType<Record<string, unknown>> => {
 const IsoflowComponent = getIsoflowComponent();
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => getSessionUser());
-
-  // Determine active view: studio or auth onboarding funnel
-  const [activeScreen, setActiveScreen] = useState<'studio' | 'login' | 'signup' | 'verify' | 'create-workspace'>(() => {
-    const user = getSessionUser();
-    if (!user) return 'login';
-    if (!user.isEmailVerified) return 'verify';
-    if (!user.currentWorkspaceId || user.workspaces.length === 0) return 'create-workspace';
-    return 'studio';
-  });
+  // Auth comes from the server session (HTTP-only cookie, re-checked via GET /api/auth/me),
+  // not from localStorage. See hooks/useAuth.tsx.
+  const { user, isLoading: authLoading, logout } = useAuth();
+  // Set by "Continue without an account" on the sign-in screen.
+  // Delete this state (and the guest button in AuthScreens) to make login mandatory.
+  const [guestMode, setGuestMode] = useState(false);
 
   const {
     project,
@@ -78,11 +69,8 @@ export default function App() {
   const [currentDesignId, setCurrentDesignId] = useState<string | null>(null);
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
 
-  // Active workspace calculation
-  const currentWorkspace = useMemo(() => {
-    if (!currentUser?.currentWorkspaceId) return null;
-    return getAllWorkspaces().find((w) => w.id === currentUser.currentWorkspaceId);
-  }, [currentUser]);
+  // Workspace shown in the header (created for the user at sign-up)
+  const workspaceName = user?.currentWorkspaceName || (user ? 'My Workspace' : 'Guest');
 
   // Debounced auto-save to storage
   useEffect(() => {
@@ -132,16 +120,23 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [undo, redo]);
 
-  // If user is unauthenticated, unverified, or lacks a workspace, show onboarding screen
-  if (activeScreen !== 'studio') {
+  // Wait for the first session check so a refresh never flashes the sign-in screen.
+  if (authLoading) {
+    return (
+      <div style={{ width: '100vw', height: '100vh', display: 'grid', placeItems: 'center', background: '#f8fafc', color: '#64748b', fontSize: 14 }}>
+        Loading…
+      </div>
+    );
+  }
+
+  // Signed out -> sign in / sign up / verify / forgot password.
+  // Signing in updates the auth context, which re-renders this component into the studio.
+  if (!user && !guestMode) {
     return (
       <AuthScreens
-        initialScreen={activeScreen}
-        currentUser={currentUser}
-        onNavigate={(screen: AuthScreenType) => setActiveScreen(screen)}
-        onLoginSuccess={(updated: any) => {
-          setCurrentUser(updated);
-          setSessionUser(updated);
+        initialScreen="login"
+        onNavigate={(screen: AuthScreenType) => {
+          if (screen === 'studio') setGuestMode(true);
         }}
       />
     );
@@ -248,11 +243,10 @@ export default function App() {
     alert(`Design "${project.title}" saved successfully to your gallery!`);
   };
 
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
     if (confirm('Log out from VisualStack?')) {
-      setSessionUser(null);
-      setCurrentUser(null);
-      setActiveScreen('login');
+      await logout(); // clears the cookie on the server, then the local session
+      setGuestMode(false);
     }
   };
 
@@ -300,7 +294,7 @@ export default function App() {
               fontWeight: '700'
             }}
           >
-            🏢 {currentWorkspace?.name || 'Workspace'}
+            🏢 {workspaceName}
           </span>
           <input
             type="text"
@@ -515,7 +509,7 @@ export default function App() {
 
           <button
             onClick={handleSignOut}
-            title={`Signed in as ${currentUser?.name}`}
+            title={user ? `Signed in as ${user.fullName}` : 'Guest session'}
             style={{
               background: 'transparent',
               border: `1px solid #ef4444`,

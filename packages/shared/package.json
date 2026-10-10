@@ -1,20 +1,27 @@
 {
-  "name": "@visualstack/shared",
+  "name": "visualstack-monorepo",
   "version": "1.0.0",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
-    "build": "tsc"
-  },
-  "dependencies": {
-    "zod": "^3.25.76"
+    "dev:web": "npm run dev --workspace=apps/web",
+    "dev:server": "npm run dev --workspace=apps/server",
+    "build:shared": "npm run build --workspace=packages/shared",
+    "build:web": "npm run build --workspace=apps/web",
+    "build:server": "npm run build --workspace=apps/server",
+    "lint": "npm run lint --workspaces",
+    "dev": "concurrently -n server,web -c blue,green \"npm:dev:server\" \"npm:dev:web\"",
+    "docker:up": "docker compose up -d",
+    "db:generate": "npm run prisma:generate --workspace=apps/server",
+    "db:migrate": "npm run prisma:migrate --workspace=apps/server",
+    "db:deploy": "npm exec --workspace=apps/server -- prisma migrate deploy",
+    "db:studio": "npm exec --workspace=apps/server -- prisma studio"
   },
   "devDependencies": {
-    "@types/node": "^26.6.3",
+    "concurrently": "^10.0.5",
     "typescript": "^5.9.3"
-  },
-  "description": "",
-  "keywords": [],
-  "author": "",
-  "license": "ISC"
+  }
 }

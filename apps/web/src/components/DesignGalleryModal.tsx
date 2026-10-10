@@ -1,7 +1,7 @@
 /**Profile & Design Gallery Modal */
 // src/components/DesignGalleryModal.tsx
 import React, { useState } from 'react';
-import type { SavedDesign, UserProfile, Collaborator } from '../src/utils/designStorage';
+import type { SavedDesign, UserProfile, Collaborator } from '../utils/designStorage';
 
 interface DesignGalleryModalProps {
   isOpen: boolean;
