@@ -9,9 +9,10 @@
   "scripts": {
     "dev:web": "npm run dev --workspace=apps/web",
     "dev:server": "npm run dev --workspace=apps/server",
-    "build:shared": "npm run build --workspace=packages/shared",
-    "build:web": "npm run build --workspace=apps/web",
-    "build:server": "npm run build --workspace=apps/server",
+    "build:shared": "npm run build --workspace=packages/shared run build",
+    "build:web": "npm run build --workspace=apps/web run build",
+    "build:server": "npm run build --workspace=apps/server run build",
+    "build": "npm run build:shared && npm run build:server && npm run build:web",
     "lint": "npm run lint --workspaces"
   },
   "devDependencies": {
