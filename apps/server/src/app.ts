@@ -116,3 +116,6 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
     console.error('[server] unhandled error:', err);
     res.status(500).json({ error: 'Something went wrong.' });
 });
+
+// Vercel's Express runtime requires the app as the module's default export.
+export default app;
