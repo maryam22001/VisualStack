@@ -26,12 +26,12 @@ app.use((_req, res, next) => {
     next();
 });
 
-// CLIENT_ORIGIN may be a comma-separated list, e.g. "https://app.example.com,http://localhost:5174".
-// Not needed when the API serves the web app itself (same origin).
-const allowedOrigins = (process.env.CLIENT_ORIGIN || 'http://localhost:5174', 'https://maryam22001.github.io' )
-    .split(',')
-    .map((o) => o.trim())
-    .filter(Boolean);
+// Parse allowed origins safely from environment variable or defaults
+const defaultOrigins = ['http://localhost:5174', 'https://maryam22001.github.io'];
+const allowedOrigins = process.env.CLIENT_ORIGIN
+    ? process.env.CLIENT_ORIGIN.split(',').map((o) => o.trim()).filter(Boolean)
+    : defaultOrigins;
+
 
 app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(express.json({ limit: '10mb' }));
