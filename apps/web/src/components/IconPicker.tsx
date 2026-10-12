@@ -10,27 +10,32 @@ interface IconPickerProps {
 
 export function IconPicker({ isOpen, onClose, onSelect, theme = 'light' }: IconPickerProps) {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<IconResult[]>([]);
-  const [loading, setLoading] = useState(false);
+  // Results are stored together with the query they belong to, so "loading" and the
+  // visible list can be derived during render instead of set synchronously inside an effect.
+  const [found, setFound] = useState<{ query: string; results: IconResult[] }>({ query: '', results: [] });
+  const q = query.trim();
+  const loading = q.length >= 2 && found.query !== q;
+  const results = q.length >= 2 ? found.results : [];
 
   const isDark = theme === 'dark';
 
   useEffect(() => {
-    if (query.trim().length < 2) {
-      setResults([]);
-      return;
-    }
+    if (q.length < 2) return;
 
-    setLoading(true);
+    let cancelled = false;
     const timer = setTimeout(() => {
-      findIcon(query)
-        .then((res) => setResults(res))
-        .catch((err) => console.error('Failed to load icons:', err))
-        .finally(() => setLoading(false));
+      findIcon(q)
+        .then((res) => {
+          if (!cancelled) setFound({ query: q, results: res });
+        })
+        .catch((err) => console.error('Failed to load icons:', err));
     }, 250);
 
-    return () => clearTimeout(timer);
-  }, [query]);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [q]);
 
   if (!isOpen) return null;
 

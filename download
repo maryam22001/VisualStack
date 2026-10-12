@@ -1,0 +1,14 @@
+# Prisma stores a checksum of every applied migration file. Never let Git rewrite their line endings
+# (Windows autocrlf would otherwise make `migrate deploy` report a modified migration on other machines).
+apps/server/prisma/migrations/**/*.sql -text
+node_modules
+**/node_modules
+**/dist
+.git
+.github
+**/.env
+**/.env.*
+!.env.example
+*.log
+.vscode
+.idea

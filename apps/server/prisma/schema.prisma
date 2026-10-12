@@ -19,6 +19,8 @@ model User {
   resetCode              String?
   resetExpiresAt         DateTime?
   resetAttempts          Int                @default(0)
+  // Bumped on password reset / "sign out everywhere"; JWTs carrying an older value stop working.
+  tokenVersion           Int                @default(0)
   ownedWorkspaces        Workspace[]        @relation("WorkspaceOwner")
   memberships            WorkspaceMember[]
   designsCreated         Design[]

@@ -235,7 +235,7 @@ export async function login(req: Request, res: Response) {
       });
     }
 
-    res.cookie(COOKIE_NAME, signSession(user.id), sessionCookieOptions());
+    res.cookie(COOKIE_NAME, signSession(user.id, user.tokenVersion ?? 0), sessionCookieOptions());
     return res.json({ user: toSession(user) });
   } catch (error) {
     console.error('[auth] login error:', error);
@@ -249,6 +249,20 @@ export async function login(req: Request, res: Response) {
 export function logout(_req: Request, res: Response) {
   res.clearCookie(COOKIE_NAME, clearCookieOptions());
   return res.json({ success: true });
+}
+
+// =====================================================================
+// POST /api/auth/logout-all    (requires a session) - "sign out everywhere"
+// =====================================================================
+export async function logoutAll(req: Request, res: Response) {
+  try {
+    await prisma.user.update({ where: { id: req.userId! }, data: { tokenVersion: { increment: 1 } } });
+    res.clearCookie(COOKIE_NAME, clearCookieOptions());
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('[auth] logout-all error:', error);
+    return res.status(500).json({ error: 'Could not sign out of all devices.' });
+  }
 }
 
 // =====================================================================
@@ -340,6 +354,8 @@ export async function resetPassword(req: Request, res: Response) {
         resetCode: null,
         resetExpiresAt: null,
         resetAttempts: 0,
+        // Revoke every session issued before the reset (all devices): requireAuth rejects old tokenVersions.
+        tokenVersion: { increment: 1 },
         // The code only ever reached this inbox, so a successful reset also proves ownership of the email.
         isVerified: true,
         verificationCode: null,

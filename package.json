@@ -9,14 +9,29 @@
   "scripts": {
     "dev:web": "npm run dev --workspace=apps/web",
     "dev:server": "npm run dev --workspace=apps/server",
-    "build:shared": "npm run build --workspace=packages/shared run build",
-    "build:web": "npm run build --workspace=apps/web run build",
-    "build:server": "npm run build --workspace=apps/server run build",
-    "build": "npm run build:shared && npm run build:server && npm run build:web",
-    "lint": "npm run lint --workspaces"
+    "build:shared": "npm run build --workspace=packages/shared",
+    "build:web": "npm run build --workspace=apps/web",
+    "build:server": "npm run build --workspace=apps/server",
+    "lint": "npm run lint --workspaces --if-present",
+    "dev": "concurrently -n server,web -c blue,green \"npm:dev:server\" \"npm:dev:web\"",
+    "docker:up": "docker compose up -d",
+    "db:generate": "npm run prisma:generate --workspace=apps/server",
+    "db:migrate": "npm run prisma:migrate --workspace=apps/server",
+    "db:deploy": "npm exec --workspace=apps/server -- prisma migrate deploy",
+    "db:studio": "npm exec --workspace=apps/server -- prisma studio",
+    "start": "npm run start --workspace=apps/server",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "db:validate": "npm exec --workspace=apps/server -- prisma validate",
+    "build": "npm run build:web && npm run build:server",
+    "check": "npm run db:generate && npm run db:validate && npm run typecheck && npm run lint && npm run test && npm run build",
+    "smoke": "node scripts/smoke.mjs"
   },
   "devDependencies": {
     "concurrently": "^10.0.5",
     "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=20.19.0"
   }
 }

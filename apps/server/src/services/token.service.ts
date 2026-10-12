@@ -7,6 +7,10 @@ import type { CookieOptions } from 'express';
  * The JWT lives ONLY in an HTTP-only cookie. JavaScript on the page can never read it,
  * so an XSS bug cannot steal the session. The frontend keeps just a non-sensitive
  * profile cache (name, email, workspace) in localStorage for fast first paint.
+ *
+ * Every token carries the user's `tokenVersion` (claim "tv"). requireAuth compares it with
+ * the database, so bumping the version (password reset, "sign out everywhere") instantly
+ * invalidates every token issued before - on every device.
  */
 
 export const COOKIE_NAME = 'token';
@@ -52,10 +56,12 @@ export function clearCookieOptions(): CookieOptions {
     return rest;
 }
 
-export function signSession(userId: string): string {
-    return jwt.sign({ userId }, getJwtSecret(), { expiresIn: '7d' });
+export function signSession(userId: string, tokenVersion = 0): string {
+    return jwt.sign({ userId, tv: tokenVersion }, getJwtSecret(), { expiresIn: '7d' });
 }
 
-export function verifySession(token: string): { userId: string } {
-    return jwt.verify(token, getJwtSecret()) as { userId: string };
+export function verifySession(token: string): { userId: string; tokenVersion: number } {
+    const payload = jwt.verify(token, getJwtSecret()) as { userId: string; tv?: number };
+    // Tokens issued before tokenVersion existed have no "tv": treat as version 0.
+    return { userId: payload.userId, tokenVersion: payload.tv ?? 0 };
 }

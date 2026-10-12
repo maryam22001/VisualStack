@@ -22,14 +22,14 @@ export function convertProjectToIsoflowData(project: VisualStackProject) {
   const rawNodes = Array.isArray(project?.cleanView?.nodes) && project.cleanView.nodes.length > 0
     ? project.cleanView.nodes
     : Array.isArray(project?.detailed2DView?.nodes)
-    ? project.detailed2DView.nodes
-    : [];
+      ? project.detailed2DView.nodes
+      : [];
 
   const rawConnectors = Array.isArray(project?.cleanView?.connectors) && project.cleanView.connectors.length > 0
     ? project.cleanView.connectors
     : Array.isArray(project?.detailed2DView?.connectors)
-    ? project.detailed2DView.connectors
-    : [];
+      ? project.detailed2DView.connectors
+      : [];
 
   // 1. Build Item Catalog
   const items = rawNodes.map((n, idx) => ({
@@ -45,7 +45,7 @@ export function convertProjectToIsoflowData(project: VisualStackProject) {
   const sceneItems = items.map((item, idx) => {
     const rawNode = rawNodes[idx];
     let tileX = Math.round((rawNode?.x || idx * 120) / 120);
-    let tileY = Math.round((rawNode?.y || 0) / 120);
+    const tileY = Math.round((rawNode?.y || 0) / 120);
 
     // Prevent identical tile overlap
     while (occupiedTiles.has(`${tileX},${tileY}`)) {

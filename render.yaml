@@ -1,0 +1,42 @@
+# Render Blueprint: one web service (API + built web app on a single origin) + one PostgreSQL database.
+# Deploy: Render dashboard -> New -> Blueprint -> pick this repo. Then fill the variables marked
+# "sync: false" (GMAIL_USER, GMAIL_APP_PASSWORD) when prompted.
+#
+# PLANS: "free" is fine for trying it out, but a free web service sleeps when idle and a free database
+# expires after 30 days. For real users change both to a paid plan (e.g. starter / basic-256mb).
+
+databases:
+  - name: visualstack-db
+    databaseName: visualstack
+    user: visualstack
+    plan: free
+
+services:
+  - type: web
+    name: visualstack
+    runtime: node
+    plan: free
+    healthCheckPath: /api/health
+    # --include=dev: the build needs TypeScript/Vite/Prisma CLI, which are devDependencies.
+    buildCommand: npm ci --include=dev && npm run db:generate && npm run build
+    # Migrations run on every start; "migrate deploy" only applies committed migrations.
+    startCommand: npm run db:deploy && npm run start
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: NODE_ENV
+        value: production
+      - key: SERVE_WEB
+        value: "true"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: visualstack-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: GMAIL_USER
+        sync: false
+      - key: GMAIL_APP_PASSWORD
+        sync: false
+      - key: EMAIL_FROM_NAME
+        value: VisualStack

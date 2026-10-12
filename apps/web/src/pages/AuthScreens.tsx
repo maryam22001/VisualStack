@@ -6,7 +6,9 @@ import {
   apiResendCode,
   apiResetPassword,
   apiVerifyOtp,
-  ApiError
+  ApiError,
+  errorMessage,
+  type UserSession
 } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
 import './auth.css';
@@ -15,10 +17,10 @@ export type AuthScreenType = 'studio' | 'login' | 'signup' | 'verify' | 'create-
 
 export interface AuthScreensProps {
   initialScreen?: 'login' | 'signup' | 'verify' | 'create-workspace';
-  currentUser?: any;
+  currentUser?: unknown;
   /** Called with 'studio' when the visitor chooses "Continue without an account". */
   onNavigate: (screen: AuthScreenType) => void;
-  onLoginSuccess?: (user: any) => void;
+  onLoginSuccess?: (user: UserSession) => void;
   onClose?: () => void;
 }
 
@@ -127,17 +129,14 @@ const OtpInput: React.FC<{
   onComplete?: (code: string) => void;
   disabled?: boolean;
   hasError?: boolean;
-  resetKey: number;
-}> = ({ onChange, onComplete, disabled, hasError, resetKey }) => {
+}> = ({ onChange, onComplete, disabled, hasError }) => {
   const [digits, setDigits] = useState<string[]>(Array(6).fill(''));
   const refs = useRef<Array<HTMLInputElement | null>>([]);
 
+  // The parent remounts this component (via `key`) to clear it, so focusing on mount is all it takes.
   useEffect(() => {
-    setDigits(Array(6).fill(''));
-    onChange?.('');
     refs.current[0]?.focus();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resetKey]);
+  }, []);
 
   const update = (next: string[]) => {
     setDigits(next);
@@ -237,7 +236,7 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({ initialScreen, onNavig
 
   // Signing in updates the auth context; App.tsx reacts to `user` and shows the studio
   // for that user's workspace. No manual navigation needed.
-  const finish = (user: any) => {
+  const finish = (user: UserSession) => {
     setUser(user);
     if (onLoginSuccess) onLoginSuccess(user);
     if (onClose) onClose();
@@ -260,8 +259,8 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({ initialScreen, onNavig
       setInfo(null);
       setOtpKey((k) => k + 1);
       setScreen('verify');
-    } catch (err: any) {
-      setError(err.message || 'Registration failed');
+    } catch (err) {
+      setError(errorMessage(err, 'Registration failed'));
     } finally {
       setLoading(false);
     }
@@ -276,16 +275,16 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({ initialScreen, onNavig
     try {
       const res = await apiLogin(email.trim(), password);
       finish(res.user);
-    } catch (err: any) {
-      if (err instanceof ApiError && err.data?.needsVerification) {
+    } catch (err) {
+      if (err instanceof ApiError && err.data.needsVerification === true) {
         // Correct password, but the email was never confirmed: enter the code, or ask for a new one.
-        setPendingUserId(err.data.userId);
+        setPendingUserId(String(err.data.userId));
         setNotice('Please verify your email to continue. Enter the code we sent you, or request a new one below.');
         setResendIn(0);
         setOtpKey((k) => k + 1);
         setScreen('verify');
       } else {
-        setError(err.message || 'Login failed');
+        setError(errorMessage(err, 'Login failed'));
       }
     } finally {
       setLoading(false);
@@ -303,8 +302,8 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({ initialScreen, onNavig
         const loginRes = await apiLogin(email.trim(), password);
         finish(loginRes.user);
       }
-    } catch (err: any) {
-      setError(err.message || 'Verification failed');
+    } catch (err) {
+      setError(errorMessage(err, 'Verification failed'));
       setOtpKey((k) => k + 1); // clear the boxes
     } finally {
       setLoading(false);
@@ -325,9 +324,9 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({ initialScreen, onNavig
       } else {
         setNotice("We couldn't send the email. Please try again shortly.");
       }
-    } catch (err: any) {
-      if (err instanceof ApiError && err.data?.retryAfter) setResendIn(err.data.retryAfter);
-      setError(err.message || 'Could not resend the code');
+    } catch (err) {
+      if (err instanceof ApiError && typeof err.data.retryAfter === 'number') setResendIn(err.data.retryAfter);
+      setError(errorMessage(err, 'Could not resend the code'));
     }
   };
 
@@ -347,8 +346,8 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({ initialScreen, onNavig
       setInfo(null);
       setResendIn(RESEND_SECONDS);
       setScreen('reset');
-    } catch (err: any) {
-      setError(err.message || 'Could not start the password reset');
+    } catch (err) {
+      setError(errorMessage(err, 'Could not start the password reset'));
     } finally {
       setLoading(false);
     }
@@ -362,8 +361,8 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({ initialScreen, onNavig
       await apiForgotPassword(email.trim());
       setResendIn(RESEND_SECONDS);
       setInfo('If that email has an account, a new code is on its way.');
-    } catch (err: any) {
-      setError(err.message || 'Could not resend the code');
+    } catch (err) {
+      setError(errorMessage(err, 'Could not resend the code'));
     }
   };
 
@@ -382,8 +381,9 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({ initialScreen, onNavig
       setConfirmPassword('');
       go('login');
       setSuccess('Password updated. Sign in with your new password.');
-    } catch (err: any) {
-      setError(err.message || 'Could not reset the password');
+    } catch (err) {
+      setError(errorMessage(err, 'Could not reset the password'));
+      setResetCode('');
       setOtpKey((k) => k + 1);
     } finally {
       setLoading(false);
@@ -538,7 +538,7 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({ initialScreen, onNavig
           {screen === 'verify' && (
             <>
               <div className="vs-auth__form">
-                <OtpInput onComplete={handleVerify} disabled={loading} hasError={!!error} resetKey={otpKey} />
+                <OtpInput key={otpKey} onComplete={handleVerify} disabled={loading} hasError={!!error} />
                 {loading && (
                   <p className="vs-auth__hint" role="status">
                     Verifying…
@@ -584,7 +584,7 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({ initialScreen, onNavig
                   <div className="vs-auth__label-row">
                     <label>Reset code</label>
                   </div>
-                  <OtpInput onChange={setResetCode} disabled={loading} hasError={!!error && resetCode.length === 0} resetKey={otpKey} />
+                  <OtpInput key={otpKey} onChange={setResetCode} disabled={loading} hasError={!!error && resetCode.length === 0} />
                 </div>
                 <PasswordField id="reset-new" label="New password" value={newPassword} onChange={setNewPassword} autoComplete="new-password" placeholder="At least 8 characters" />
                 <PasswordField id="reset-confirm" label="Confirm new password" value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" placeholder="Repeat the new password" />

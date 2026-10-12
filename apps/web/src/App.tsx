@@ -12,20 +12,10 @@ import {
 } from './utils/storage';
 import { useProjectHistory } from './hooks/useProjectHistory';
 import { convertProjectToIsoflowData } from './utils/isoflowAdapter';
-import {
-  loadDesigns,
-  upsertDesign,
-  renameDesign,
-  deleteDesign,
-  addCollaboratorToDesign,
-  removeCollaborator,
-  loadProfile,
-  saveProfile,
-  type SavedDesign,
-  type UserProfile
-} from './utils/designStorage';
 import { DesignGalleryModal } from './components/DesignGalleryModal';
 import { useAuth } from './hooks/useAuth';
+import { useDesigns } from './hooks/useDesigns';
+import { errorMessage } from './api/client';
 import { AuthScreens, type AuthScreenType } from './pages/AuthScreens';
 
 // Safely resolve Isoflow component export across Vite ESM/CJS boundaries
@@ -43,7 +33,7 @@ const IsoflowComponent = getIsoflowComponent();
 export default function App() {
   // Auth comes from the server session (HTTP-only cookie, re-checked via GET /api/auth/me),
   // not from localStorage. See hooks/useAuth.tsx.
-  const { user, isLoading: authLoading, logout } = useAuth();
+  const { user, isLoading: authLoading, logout, logoutEverywhere } = useAuth();
   // Set by "Continue without an account" on the sign-in screen.
   // Delete this state (and the guest button in AuthScreens) to make login mandatory.
   const [guestMode, setGuestMode] = useState(false);
@@ -63,14 +53,25 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isFirstRender = useRef(true);
 
-  // Gallery & Profile state
-  const [designs, setDesigns] = useState<SavedDesign[]>(() => loadDesigns());
-  const [profile, setProfile] = useState<UserProfile>(() => loadProfile());
+  // Gallery: server-backed for signed-in users (workspaces + roles), localStorage for guests.
+  const store = useDesigns(user);
   const [currentDesignId, setCurrentDesignId] = useState<string | null>(null);
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // When the signed-in identity changes (sign-out, expired session, a different user) reset
+  // everything tied to the previous one, so the next session never inherits an open modal or
+  // another account's "current design". (React's recommended "reset state on prop change" pattern.)
+  const identity = user?.id ?? null;
+  const [seenIdentity, setSeenIdentity] = useState(identity);
+  if (seenIdentity !== identity) {
+    setSeenIdentity(identity);
+    setIsGalleryOpen(false);
+    setCurrentDesignId(null);
+  }
 
   // Workspace shown in the header (created for the user at sign-up)
-  const workspaceName = user?.currentWorkspaceName || (user ? 'My Workspace' : 'Guest');
+  const workspaceName = store.activeWorkspace?.name || user?.currentWorkspaceName || (user ? 'My Workspace' : 'Guest');
 
   // Debounced auto-save to storage
   useEffect(() => {
@@ -227,20 +228,25 @@ export default function App() {
     reader.readAsText(file);
   };
 
-  const handleSaveDesign = () => {
-    const id = currentDesignId || `design-${Date.now()}`;
-    const newDesign: SavedDesign = {
-      id,
-      title: project.title || 'Untitled Architecture',
-      updatedAt: Date.now(),
-      collaborators: designs.find((d) => d.id === id)?.collaborators || [],
-      project: { ...project, id }
-    };
-
-    const updated = upsertDesign(newDesign);
-    setDesigns(updated);
-    setCurrentDesignId(id);
-    alert(`Design "${project.title}" saved successfully to your gallery!`);
+  const handleSaveDesign = async () => {
+    if (!store.canEdit) {
+      alert('You have view-only access to this workspace, so this design cannot be saved here.');
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const saved = await store.saveDesign(project, currentDesignId, theme);
+      setCurrentDesignId(saved.id);
+      alert(
+        store.mode === 'cloud'
+          ? `"${saved.title}" saved to ${workspaceName}.`
+          : `"${saved.title}" saved in this browser. Sign in to keep it in your workspace.`
+      );
+    } catch (err) {
+      alert(`Could not save the design: ${errorMessage(err)}`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleSignOut = async () => {
@@ -291,11 +297,36 @@ export default function App() {
               color: '#0284c7',
               padding: '4px 8px',
               borderRadius: '6px',
-              fontWeight: '700'
+              fontWeight: '700',
+              whiteSpace: 'nowrap'
             }}
           >
             🏢 {workspaceName}
           </span>
+          {store.workspaces.length > 1 && (
+            <select
+              aria-label="Switch workspace"
+              value={store.activeWorkspace?.id ?? ''}
+              onChange={(e) => {
+                store.switchWorkspace(e.target.value);
+                setCurrentDesignId(null);
+              }}
+              style={{
+                fontSize: '11px',
+                padding: '4px 6px',
+                borderRadius: '6px',
+                border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
+                background: isDark ? '#0f172a' : '#ffffff',
+                color: isDark ? '#f8fafc' : '#0f172a'
+              }}
+            >
+              {store.workspaces.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name}
+                </option>
+              ))}
+            </select>
+          )}
           <input
             type="text"
             value={project.title}
@@ -401,6 +432,8 @@ export default function App() {
 
           <button
             onClick={handleSaveDesign}
+            disabled={isSaving || !store.canEdit}
+            title={store.canEdit ? 'Save this design' : 'View-only access: ask the owner for edit rights'}
             style={{
               background: '#0284c7',
               color: '#fff',
@@ -409,10 +442,11 @@ export default function App() {
               borderRadius: '6px',
               fontSize: '12px',
               fontWeight: '600',
-              cursor: 'pointer'
+              cursor: isSaving || !store.canEdit ? 'not-allowed' : 'pointer',
+              opacity: isSaving || !store.canEdit ? 0.55 : 1
             }}
           >
-            💾 Save
+            {isSaving ? 'Saving…' : '💾 Save'}
           </button>
 
           <button
@@ -428,7 +462,7 @@ export default function App() {
               cursor: 'pointer'
             }}
           >
-            📁 Gallery ({designs.length})
+            📁 Gallery ({store.designs.length})
           </button>
 
           <button
@@ -569,12 +603,12 @@ export default function App() {
         )}
       </main>
 
-      {/* Design Gallery & Collaborators Modal */}
+      {/* Workspace Hub: shared designs + team */}
       <DesignGalleryModal
         isOpen={isGalleryOpen}
         theme={theme}
-        profile={profile}
-        designs={designs}
+        store={store}
+        user={user}
         currentDesignId={currentDesignId}
         onClose={() => setIsGalleryOpen(false)}
         onSelectDesign={(d) => {
@@ -582,22 +616,26 @@ export default function App() {
           setCurrentDesignId(d.id);
           setIsGalleryOpen(false);
         }}
-        onRenameDesign={(id, newTitle) => setDesigns(renameDesign(id, newTitle))}
+        onRenameDesign={(id, newTitle) => {
+          store.renameDesign(id, newTitle);
+          // keep the open canvas in step so the next Save does not undo the rename
+          if (id === currentDesignId) updateTitle(newTitle);
+        }}
         onDeleteDesign={(id) => {
-          if (confirm('Delete this design from the gallery?')) {
-            setDesigns(deleteDesign(id));
-            if (currentDesignId === id) setCurrentDesignId(null);
+          if (confirm('Delete this design? This cannot be undone.')) {
+            store
+              .deleteDesign(id)
+              .then(() => {
+                if (currentDesignId === id) setCurrentDesignId(null);
+              })
+              .catch((err) => alert(`Could not delete the design: ${errorMessage(err)}`));
           }
         }}
-        onAddCollaborator={(designId, collab) => {
-          setDesigns(addCollaboratorToDesign(designId, collab));
-        }}
-        onRemoveCollaborator={(designId, collabId) => {
-          setDesigns(removeCollaborator(designId, collabId));
-        }}
-        onSaveProfile={(updatedProfile) => {
-          saveProfile(updatedProfile);
-          setProfile(updatedProfile);
+        onSignOutEverywhere={() => {
+          if (confirm('Sign out of VisualStack on every device, including this one?')) {
+            void logoutEverywhere();
+            setGuestMode(false);
+          }
         }}
       />
     </div>

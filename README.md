@@ -78,13 +78,16 @@ The repository is an **npm-workspaces monorepo**:
 - **JSON export/import** — check diagrams into Git or move them between machines.
 - **PNG and SVG export** (PNG can be copied straight to the clipboard).
 - **Shareable link** — the whole design is encoded into the URL hash; no server needed to view it.
-- **Design gallery** with rename/delete.
+- **Shared design gallery** stored in PostgreSQL, per workspace: save, open, rename (debounced), delete — available on every device you sign in on. Guests keep a browser-only gallery.
+- **Import** designs you saved in this browser before accounts existed, into your workspace, with one click.
 
 ### Accounts & security
 - **Sign up → verify email (6-digit code) → sign in**, with a personal workspace created automatically.
 - **Forgot password / reset password** via emailed one-time code.
 - **Unverified users** who try to sign in are routed to the code screen with a **Resend code** button.
 - **Session persistence**: HTTP-only cookie session that survives refreshes and is re-validated on every page load.
+- **Instant session revocation**: a password reset or **Sign out of all devices** invalidates every session on every device.
+- **Teams & roles**: add teammates to a workspace as **Editor** (can edit) or **Viewer** (read-only); a workspace picker switches between your own and shared workspaces. Roles are enforced by the server, not just the UI.
 - Professional **HTML + plain-text transactional emails**.
 
 ---
@@ -170,38 +173,50 @@ sequenceDiagram
 ---
 
 ## 5. Repository structure
-
 ```text
 VisualStack/
 ├── apps/
 │   ├── server/
 │   │   ├── prisma/
-│   │   │   ├── schema.prisma            # data model
-│   │   │   └── migrations/              # SQL migrations (commit these)
+│   │   │   ├── schema.prisma              # data model
+│   │   │   └── migrations/                # SQL migrations (commit these; never edit applied ones)
+│   │   ├── tests/                         # node:test API suites (fake DB, no Postgres needed)
 │   │   └── src/
-│   │       ├── index.ts                 # boot: env, JWT check, SMTP check, listen
-│   │       ├── app.ts                   # CORS, cookies, routes
+│   │       ├── index.ts                   # boot: env, JWT check, SMTP check, listen
+│   │       ├── app.ts                     # security headers, CORS, routes, health, optional web serving
 │   │       ├── controllers/
-│   │       │   ├── auth.controllers.ts  # register/verify/resend/login/logout/me/forgot/reset
-│   │       │   └── design.controller.ts # designs CRUD with workspace authorization
-│   │       ├── middleware/requireAuth.ts
+│   │       │   ├── auth.controllers.ts    # register/verify/resend/login/logout(-all)/me/forgot/reset
+│   │       │   ├── workspace.controller.ts# my workspaces, members: list/add/role/remove
+│   │       │   └── design.controller.ts   # designs CRUD, role-checked
+│   │       ├── middleware/requireAuth.ts  # cookie JWT + tokenVersion check
 │   │       └── services/
-│   │           ├── db.service.ts        # PrismaClient
-│   │           ├── email.service.ts     # templates + Gmail transport
-│   │           └── token.service.ts     # JWT + cookie options
+│   │           ├── db.service.ts          # PrismaClient
+│   │           ├── access.service.ts      # roles: owner / editor / viewer
+│   │           ├── email.service.ts       # templates + Gmail transport
+│   │           └── token.service.ts       # JWT + cookie options
 │   └── web/
 │       └── src/
-│           ├── App.tsx                  # studio shell, auth gating
-│           ├── api/client.ts            # typed fetch client
-│           ├── hooks/                   # useAuth (session), useProjectHistory (undo/redo)
-│           ├── pages/AuthScreens.tsx    # sign in / up / verify / forgot / reset (+ auth.css)
-│           ├── views/                   # CleanArchitectureView, Architecture2D
-│           ├── components/              # IconPicker, DesignGalleryModal
-│           ├── utils/                   # storage, isoflowAdapter, IconLibrary, geometry
-│           └── types/project.ts         # VisualStackProject schema
-├── packages/shared/                     # shared types
-├── .github/workflows/deploy.yml         # frontend → GitHub Pages
-├── docker-compose.yml                   # local PostgreSQL 16
+│           ├── App.tsx                    # studio shell, auth gating, workspace picker
+│           ├── api/client.ts              # typed fetch client (cookies, ApiError, 401 event)
+│           ├── hooks/
+│           │   ├── AuthProvider.tsx       # session: cached profile + /auth/me validation
+│           │   ├── useAuth.ts             # context + hook
+│           │   ├── useDesigns.ts          # gallery store: API for users, localStorage for guests
+│           │   └── useProjectHistory.ts   # undo/redo
+│           ├── pages/AuthScreens.tsx      # sign in / up / verify / forgot / reset (+ auth.css)
+│           ├── components/                # DesignGalleryModal (designs + team), IconPicker
+│           ├── views/                     # CleanArchitectureView, Architecture2D
+│           ├── utils/                     # storage, designStorage, isoflowAdapter, IconLibrary, geometry
+│           └── types/project.ts           # VisualStackProject schema
+├── packages/shared/                       # shared types
+├── scripts/smoke.mjs                      # post-deploy smoke test
+├── .github/workflows/
+│   ├── ci.yml                             # check + real-Postgres migration + smoke test
+│   └── deploy.yml                         # optional: static web -> GitHub Pages
+├── Dockerfile  .dockerignore              # one image: API + web
+├── render.yaml                            # Render blueprint: service + database
+├── docker-compose.yml                     # local PostgreSQL 16
+├── DEPLOYMENT.md                          # step-by-step production guide
 └── .env.example
 ```
 
@@ -210,7 +225,7 @@ VisualStack/
 ## 6. Getting started
 
 ### Prerequisites
-- **Node.js 20+** (22 recommended) and npm 10+
+- **Node.js 20.19+** (22 recommended) and npm 10+
 - **Docker** (for local PostgreSQL) — or any PostgreSQL 14+ instance
 - A **Google account** with 2-Step Verification (for sending email) — see [§11](#11-email-infrastructure-gmail-smtp)
 
@@ -252,6 +267,7 @@ session cookie works without any CORS setup.
    (development only) so you can still proceed.
 3. Enter the 6-digit code → you land in the studio on **“<your name>'s Workspace”**.
 4. Refresh the page — you stay signed in.
+5. Run **`npm run check`** to confirm everything is in order (see [§14](#14-testing)).
 
 ---
 
@@ -269,7 +285,9 @@ The API reads `apps/server/.env`. Never commit it.
 | `EMAIL_REPLY_TO` | – | `support@yourdomain.com` | Reply-To header |
 | `PORT` | – | `5000` | API port |
 | `NODE_ENV` | – | `production` | Enables `Secure` cookies, hides dev code logging |
-| `CLIENT_ORIGIN` | ✅ prod | `https://app.example.com` | Allowed browser origin(s) for CORS, comma-separated |
+| `SERVE_WEB` | – | `true` | API also serves the built web app (single origin). Default: on in production when `apps/web/dist` exists |
+| `WEB_DIST_DIR` | – | `/app/apps/web/dist` | Override the folder served when `SERVE_WEB` is on |
+| `CLIENT_ORIGIN` | split hosting only | `https://app.example.com` | Allowed browser origin(s) for CORS, comma-separated. Not needed when the API serves the web app |
 | `COOKIE_SAMESITE` | – | `lax` \| `strict` \| `none` | Use `none` only for cross-site setups (needs HTTPS) |
 | `COOKIE_DOMAIN` | – | `.example.com` | Share the cookie between `app.` and `api.` subdomains |
 
@@ -277,7 +295,7 @@ Frontend build-time variables (`apps/web/.env.production`):
 
 | Variable | Description |
 |---|---|
-| `VITE_API_BASE_URL` | Public API origin, e.g. `https://api.example.com`. **Leave empty in development** |
+| `VITE_API_BASE_URL` | Public API origin, e.g. `https://api.example.com`. **Leave empty in development and when the API serves the web app** |
 | `VITE_BASE_PATH` | Sub-path when hosted on GitHub Pages project sites, e.g. `/VisualStack/` |
 
 ---
@@ -306,6 +324,7 @@ erDiagram
     string resetCode
     datetime resetExpiresAt
     int resetAttempts
+    int tokenVersion
   }
   Workspace { uuid id PK
     string name
@@ -331,14 +350,17 @@ erDiagram
 | **Production / CI** | `npm run db:deploy` | Applies committed migrations only; never prompts, never resets |
 | Inspect data | `npm run db:studio` | Prisma Studio on http://localhost:5555 |
 
-> ⚠️ **Required after pulling the password-reset update.** `schema.prisma` gained four columns on `User`
-> (`verificationAttempts`, `resetCode`, `resetExpiresAt`, `resetAttempts`). Create and commit the migration:
+> ⚠️ **After pulling this update, apply the new migration.** It adds `User.tokenVersion`, which lets a password reset or
+> *Sign out of all devices* revoke sessions instantly. The migration `20261010120000_add_token_version` is included:
 >
 > ```bash
-> npm run db:migrate -- --name add_password_reset_and_code_attempts
-> git add apps/server/prisma/migrations && git commit -m "db: password reset + OTP attempt limits"
+> npm run db:migrate      # local: applies it (and regenerates the Prisma client)
+> npm run db:deploy       # production / CI
 > ```
-> All new columns are nullable or have defaults, so existing rows migrate without data loss.
+>
+> (The reset-code and attempt-counter columns arrived earlier in `20261010033547_version1_1`.) The new column has a default,
+> so existing users migrate without data loss. Never edit a migration that has been applied. CI checks that `schema.prisma`
+> is fully covered by committed migrations, so a forgotten migration fails the build.
 
 ### Production rollout
 ```bash
@@ -350,7 +372,6 @@ Run this **before** starting the new API version. Never use `migrate dev` or `mi
 ---
 
 ## 9. API reference
-
 Base URL: `/api`. JSON in, JSON out. Protected routes need the `token` cookie (sent automatically by the browser when
 `credentials: 'include'` is used). Errors look like `{ "error": "Human readable message" }`.
 
@@ -363,9 +384,10 @@ Base URL: `/api`. JSON in, JSON out. Protected routes need the `token` cookie (s
 | POST | `/auth/resend-code` | – | `{ email }` | `200 { success, emailSent }` |
 | POST | `/auth/login` | – | `{ email, password }` | `200 { user }` + `Set-Cookie: token` |
 | POST | `/auth/logout` | – | – | `200 { success }` (cookie cleared) |
+| POST | `/auth/logout-all` | cookie | – | `200 { success }` — revokes **every** session of the account |
 | GET | `/auth/me` | cookie | – | `200 { user }` |
 | POST | `/auth/forgot-password` | – | `{ email }` | `200 { message }` (always) |
-| POST | `/auth/reset-password` | – | `{ email, code, newPassword }` | `200 { message }` |
+| POST | `/auth/reset-password` | – | `{ email, code, newPassword }` | `200 { message }` (also revokes all sessions) |
 
 `/auth/resend` is kept as a legacy alias of `/auth/resend-code`.
 
@@ -375,28 +397,51 @@ Base URL: `/api`. JSON in, JSON out. Protected routes need the `token` cookie (s
   "currentWorkspaceId": "…", "currentWorkspaceName": "Ada Lovelace's Workspace" }
 ```
 
-**Status codes worth handling**
+### Workspaces & team (session required)
+
+| Method | Path | Who | Body | Success |
+|---|---|---|---|---|
+| GET | `/workspaces` | any user | – | `200 [{ id, name, ownerId, role }]` — every workspace I belong to |
+| GET | `/workspaces/:id/members` | any member | – | `200 [{ userId, fullName, email, role }]` |
+| POST | `/workspaces/:id/members` | **owner** | `{ email, role: "editor"\|"viewer" }` | `201 member` — the person must already have a verified account |
+| PATCH | `/workspaces/:id/members/:userId` | **owner** | `{ role }` | `200 member` |
+| DELETE | `/workspaces/:id/members/:userId` | owner (anyone), or a member removing **themselves** | – | `200 { success }` — the owner cannot be removed |
+
+### Designs (session required)
+
+| Method | Path | Needs | Body | Success |
+|---|---|---|---|---|
+| GET | `/workspaces/:workspaceId/designs` | any role | – | `200 Design[]` (newest first) |
+| POST | `/designs` | owner / editor | `{ id?, workspaceId, title, viewMode, theme, graphData }` | `201` created, or `200` updated when `id` exists |
+| DELETE | `/designs/:id` | owner / editor | – | `200 { success }` |
+
+`graphData` holds the whole `VisualStackProject`.
+
+**Roles**
+
+| Role | Read designs | Create / edit / delete designs | Manage members |
+|---|---|---|---|
+| `owner` | ✅ | ✅ | ✅ |
+| `editor` | ✅ | ✅ | – (can leave) |
+| `viewer` | ✅ | ❌ `403` | – (can leave) |
+
+Legacy rows with `role = "member"` are treated as `editor`.
+
+### Misc
+`GET /api/health` → `200 { "status": "ok", "db": "up" }`, or `503 { "status": "degraded", "db": "down" }` when the
+database is unreachable (use it as your host's health check). Unknown `/api/*` paths return a JSON `404`.
+
+### Status codes worth handling
 
 | Code | Where | Meaning |
 |---|---|---|
 | `400` | any | Validation failed (`error` has the first problem) |
-| `401` | `/login`, protected routes | Wrong credentials / missing or expired session |
-| `403` | `/login` | Correct password but **email not verified** → body has `needsVerification: true`, `userId`, `email` |
-| `409` | `/register` | Email already registered |
+| `401` | `/login`, protected routes | Wrong credentials / missing, expired or **revoked** session |
+| `403` | `/login` | Correct password but **email not verified** → `needsVerification: true`, `userId`, `email` |
+| `403` | designs, workspaces | Not a member of that workspace, or role too low (e.g. viewer writing) |
+| `404` | members | No verified account with that email (invite) / member not found |
+| `409` | `/register`, add member | Email already registered / already a member |
 | `429` | `/verify`, `/resend-code`, `/reset-password` | Too many wrong codes, or resend cooldown (`retryAfter` seconds) |
-
-### Designs (session required)
-
-| Method | Path | Body | Success |
-|---|---|---|---|
-| GET | `/workspaces/:workspaceId/designs` | – | `200 Design[]` (newest first) |
-| POST | `/designs` | `{ id?, workspaceId, title, viewMode, theme, graphData }` | `201`/`200 Design` (creates, or updates when `id` exists) |
-| DELETE | `/designs/:id` | – | `200 { success }` |
-
-All three return **`403`** unless the caller is a member of the design's workspace.
-
-### Misc
-`GET /api/health` → `{ "status": "ok" }`
 
 ### Example
 
@@ -406,26 +451,28 @@ curl -i -c jar.txt -H 'Content-Type: application/json' \
   http://localhost:5000/api/auth/login
 
 curl -b jar.txt http://localhost:5000/api/auth/me
+curl -b jar.txt http://localhost:5000/api/workspaces
 ```
 
 ---
 
 ## 10. Authentication & security model
-
 | Concern | Implementation |
 |---|---|
 | Password storage | **argon2** hashes; passwords 8–128 chars |
 | Session | JWT (7 days) in an **HTTP-only** cookie (`token`); JavaScript cannot read it, so XSS cannot steal it. `Secure` in production; `SameSite` configurable |
+| **Session revocation** | Every JWT carries the user's `tokenVersion`; `requireAuth` compares it with the database on each request. A **password reset** or **Sign out of all devices** bumps it, so all older sessions stop working immediately, on every device. Deleted/unverified accounts are rejected the same way |
 | What the browser stores | A **non-sensitive profile cache** in `localStorage` (name, email, workspace) — never the token. It is re-validated with `GET /auth/me` on every load |
 | Email verification | 6-digit code from `crypto.randomInt`, 10-minute lifetime, compared in constant time |
 | No verification bypass | `/register` does **not** set a session; only `/login` does, and only for verified accounts |
 | Brute-force limits | 5 wrong codes burn the code (verification and reset); 30-second resend cooldown |
 | Password reset | 6-digit code, 15-minute lifetime, single use; a successful reset also marks the email verified (the code only reached that inbox) |
-| Account enumeration | `/forgot-password` and `/resend-code` answer identically for unknown emails; login uses one generic error |
-| Authorization | `requireAuth` on all design routes **plus** a workspace-membership check on every read/write/delete |
-| Input validation | `zod` schemas on every auth endpoint |
-| CORS | Only origins listed in `CLIENT_ORIGIN`, with credentials |
-| Secrets | `JWT_SECRET` ≥ 32 chars is enforced at boot in production |
+| Account enumeration | `/forgot-password` and `/resend-code` answer identically for unknown emails; login uses one generic error. *(Adding a teammate does reveal whether an email has an account — to workspace owners only — because invitations need an existing account.)* |
+| Authorization | `requireAuth` on every workspace/design route **plus** a role check (owner / editor / viewer) from the database on every read, write and delete. The UI hides what you cannot do, but the server is the authority |
+| Input validation | `zod` schemas on auth and member endpoints; body size limit; malformed JSON → clean `400` |
+| CORS | Only origins listed in `CLIENT_ORIGIN`, with credentials (irrelevant in single-origin deployments) |
+| Transport/headers | HSTS in production, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`; `X-Powered-By` removed |
+| Secrets | `JWT_SECRET` ≥ 32 chars is enforced at boot in production; verification codes are never logged in production |
 | HTML emails | User-supplied names are HTML-escaped before templating |
 
 ---
@@ -481,13 +528,16 @@ Every view reads and writes a single `VisualStackProject` (`apps/web/src/types/p
 | Module | Responsibility |
 |---|---|
 | `App.tsx` | Studio shell: header actions, view switching, export/share/import, auth gating |
-| `hooks/useAuth.tsx` | Session context: cached profile + `/auth/me` validation, global 401 handling, `logout()` |
+| `hooks/AuthProvider.tsx` + `hooks/useAuth.ts` | Session context: cached profile + `/auth/me` validation, global 401 handling, `logout()` and `logoutEverywhere()` |
+| `hooks/useDesigns.ts` | Gallery store. Signed in → API (workspaces, designs, members, roles; optimistic updates; debounced renames). Guest → `localStorage`. One interface for both |
 | `hooks/useProjectHistory.ts` | Undo/redo stack with debounced snapshots |
 | `api/client.ts` | Typed `fetch` wrapper: `credentials: 'include'`, `ApiError`, 401 event |
 | `pages/AuthScreens.tsx` | Sign in · sign up · verify code · forgot password · reset password |
 | `views/*` | SVG canvases: pan/zoom, drag, snap, click-to-connect, edit modals |
 | `utils/IconLibrary.ts`, `components/IconPicker.tsx` | Icon search (Isopacks first, Iconify fallback) |
 | `utils/storage.ts` | Autosave, JSON export/import, URL-hash sharing, PNG/SVG export |
+| `utils/designStorage.ts` | Browser-only design storage (guests, and the one-click import into a workspace) |
+| `components/DesignGalleryModal.tsx` | Workspace Hub: **Designs** tab (server gallery, import banner, view-only notice) and **Team & Account** tab (members, roles, invite, sign out everywhere) |
 
 ### Auth gating
 `App.tsx` renders: a loading screen while the first session check runs → `AuthScreens` when there is no user (unless
@@ -500,73 +550,94 @@ the visitor chose *Continue without an account*) → the studio, with the worksp
 ---
 
 ## 13. Deployment
+> The complete, step-by-step guide is in **[DEPLOYMENT.md](./DEPLOYMENT.md)**. Summary:
 
-### Recommended topology
-Serve the web app and the API from **one registrable domain** (e.g. `app.example.com` and `api.example.com`) so the
-session cookie is first-party:
+### Recommended: one service, one origin
+The API serves the built web app, so the session cookie is first-party and there is no CORS to configure:
 
 ```text
-CLIENT_ORIGIN=https://app.example.com
-COOKIE_SAMESITE=lax
-COOKIE_DOMAIN=.example.com
-NODE_ENV=production
-# web build:  VITE_API_BASE_URL=https://api.example.com
+https://app.example.com  →  /  (React app)   /api/*  (Express)   →  PostgreSQL
 ```
-Hosting them on unrelated domains (e.g. `github.io` + `onrender.com`) requires `COOKIE_SAMESITE=none` and HTTPS, and some
-browsers block third-party cookies entirely — avoid it for production.
 
-### API (Render / Railway / Fly.io / VPS)
+| Path | How |
+|---|---|
+| **Render** (easiest) | New → **Blueprint** → select this repo. `render.yaml` creates the service + a PostgreSQL database; fill in `GMAIL_USER` and `GMAIL_APP_PASSWORD`. |
+| **Docker** (Fly.io, Railway, VPS) | `docker build -t visualstack .` then run it with `DATABASE_URL`, `JWT_SECRET`, `GMAIL_*`. The container runs migrations on start. |
+| **Split hosting** (static host + API) | Only on the **same parent domain** (`app.` + `api.`), with `CLIENT_ORIGIN`, `COOKIE_DOMAIN` and `VITE_API_BASE_URL`. `deploy.yml` publishes the static part to GitHub Pages. |
+
+### Production commands (what the hosts run)
 
 | Step | Command |
 |---|---|
-| Install | `npm ci` |
-| Build | `npm run db:generate && npm run build:server` |
-| Migrate (release step) | `npm run db:deploy` |
-| Start | `npm run start --workspace=apps/server` |
+| Install | `npm ci --include=dev` *(build tools are devDependencies)* |
+| Build | `npm run db:generate && npm run build` |
+| Migrate | `npm run db:deploy` |
+| Start | `npm run start` |
 
-Provision a managed PostgreSQL and set `DATABASE_URL` plus the variables in [§7](#7-environment-variables).
-
-### Web (GitHub Pages)
-`.github/workflows/deploy.yml` builds `apps/web` and publishes `apps/web/dist`.
-In the repo: **Settings → Pages → Source: GitHub Actions**, then **Settings → Secrets and variables → Actions → Variables**
-and add `VITE_API_BASE_URL`. (Any static host — Netlify, Cloudflare Pages, Vercel — works the same way: build command
-`npm run build:web`, output `apps/web/dist`.)
+### Verify a live deployment
+```bash
+API_URL=https://app.example.com WEB=1 npm run smoke
+```
 
 ### Production checklist
-- [ ] `JWT_SECRET` is random and ≥ 32 chars; `NODE_ENV=production`
-- [ ] `npm run db:deploy` has been run against the production database
-- [ ] `CLIENT_ORIGIN` matches the web origin exactly (scheme + host, no trailing slash)
-- [ ] HTTPS everywhere (required for `Secure` cookies)
-- [ ] `GMAIL_USER` / `GMAIL_APP_PASSWORD` set; boot log shows `SMTP ready`
-- [ ] Delivery tested to Gmail, Outlook and Yahoo (see [§11](#delivery-testing-do-this-before-launch))
-- [ ] Database backups enabled
+- [ ] `npm run check` passes locally and **CI is green**
+- [ ] Migrations committed and applied (`npm run db:deploy`)
+- [ ] `NODE_ENV=production`; strong `JWT_SECRET`; `DATABASE_URL` and `GMAIL_*` stored as secrets
+- [ ] HTTPS on a custom domain; paid database plan with **backups**
+- [ ] `npm run smoke` passes against the live URL; boot log shows `[email] SMTP ready`
+- [ ] Sign-up emails tested on Gmail, Outlook and Yahoo (inbox + SPF/DKIM/DMARC pass)
 
 ---
 
 ## 14. Testing
+### One command
 
-The authentication and authorization logic was verified end-to-end against the real Express app with an in-memory
-database stand-in, and the UI flows with a headless browser against a mocked API:
+```bash
+npm run check
+```
+Runs, in order: Prisma client generation → schema validation → TypeScript on web **and** server → ESLint → API tests →
+production build of web and server. Stops at the first failure.
 
-| Area | Verified behaviours |
+| Command | What it verifies |
 |---|---|
-| Registration | validation errors; duplicate email → 409; **no session cookie before verification**; user + workspace created together |
-| Verification | wrong codes → 400 ×4 then 429 lockout; correct code **after** lockout refused; resend cooldown 429 with `retryAfter`; fresh code works |
-| Sign-in | unverified → 403 `needsVerification`; wrong password → 401; success sets an HTTP-only cookie; response contains no hash/code |
-| Session | `/auth/me` with/without cookie; logout clears cookie; design routes → 401 without session |
-| Password reset | identical response for known/unknown email; wrong code; weak password; success; old password rejected; code is single-use |
-| Authorization | non-members get 403 on list/create/update/delete; members succeed |
-| UI | forgot → reset → success banner; unverified login → code screen + Resend; login lands in the studio on the user's workspace; **refresh keeps the session**; sign-out; expired cookie clears the cache |
+| `npm run typecheck` | `tsc --noEmit` for `apps/web` and `apps/server` |
+| `npm run lint` | ESLint (zero errors expected) |
+| `npm test` | **35 API tests** (Node's built-in runner, no extra dependencies, no PostgreSQL needed) |
+| `npm run build` | Production bundles: `apps/web/dist` and `apps/server/dist` |
+| `npm run smoke` | Black-box checks of a **running** server (local or deployed); add `WEB=1` / `ORIGIN=…` for web serving / CORS |
+| `npm run db:validate` | `schema.prisma` is valid |
 
-**Manual smoke test** after any deploy: sign up with a fresh address → receive email → verify → refresh → sign out →
-*Forgot password* → reset → sign in with the new password.
+### What the 35 API tests cover
 
-Planned: automated Vitest (unit) + Playwright (E2E) suites in CI.
+| Suite | Verified behaviours |
+|---|---|
+| **auth** | validation; duplicate email → 409; **no session before verification**; unverified login → 403; resend cooldown; 5 wrong codes burn the code; cookie flags (HttpOnly, SameSite); no secrets in responses; `/me`; tampered and legacy tokens; logout; enumeration-safe forgot-password; reset (wrong code, weak password, single use); **a password reset revokes older sessions**; **sign out of all devices revokes every session** |
+| **workspaces** | list my workspaces; **owner-only** member management; unknown/unverified email explained; duplicates; **editor can write, viewer cannot (403)**; outsiders get 403 everywhere; role changes take effect immediately; owner role is protected; removal revokes access; members can leave; every protected route needs a session |
+| **single-origin serving** | `index.html` at `/` (never cached); SPA fallback; fingerprinted assets cached for a year; JSON 404 for unknown API routes; health check reports the DB; security headers; clean 400 on malformed JSON |
+
+The tests boot the **real Express app** with an in-memory stand-in for Prisma, so routing, validation, cookies, auth and roles are
+exercised end-to-end. They do not exercise PostgreSQL itself — that is what CI adds.
+
+### Continuous integration
+`.github/workflows/ci.yml` runs on every push and pull request against a **real PostgreSQL 16** service:
+
+1. `npm run check` steps (generate, validate, typecheck, lint, tests, build)
+2. `prisma migrate deploy` — proves the migrations apply to a clean database
+3. `prisma migrate diff --exit-code` — fails if `schema.prisma` has changes **not covered by a committed migration**
+4. Boots the production server and runs `npm run smoke` (API + built web app)
+
+### Manual smoke test after any deploy
+Sign up with a fresh address → receive email → verify → refresh → sign out → *Forgot password* → reset → sign in →
+**Save** a design → reload → it is still there → *Team & Account*: add a second account as **View only** and confirm it cannot save.
+
+### UI verification
+The sign-in/forgot/reset flows, session persistence across refresh, the server-backed gallery (save, import, debounced rename,
+delete), team management, view-only enforcement, sign-out-everywhere and guest mode were verified in a headless browser against a
+mocked API during development. Those scripts are not committed yet; adding a Playwright suite to CI is on the roadmap.
 
 ---
 
 ## 15. Troubleshooting
-
 | Symptom | Likely cause / fix |
 |---|---|
 | `[email] SMTP error … EAUTH` | Wrong Gmail credentials. Use a 16-char **App Password**; 2-Step Verification must be on |
@@ -574,47 +645,61 @@ Planned: automated Vitest (unit) + Playwright (E2E) suites in CI.
 | Code only appears in the server console | SMTP not configured (dev fallback). Never happens in production logs |
 | Email in spam | Verify SPF/DKIM/DMARC pass (see §11); consider a custom domain + transactional provider |
 | `404` on `/api/...` in the browser | Vite proxy not running — start via `npm run dev`; port must be 5174 |
-| CORS error / cookie not stored in production | `CLIENT_ORIGIN` mismatch, missing HTTPS, or cross-site cookies needing `COOKIE_SAMESITE=none` |
-| Signed out immediately after login | Cookie blocked (cross-site / non-HTTPS). Check the `Set-Cookie` response in dev tools |
+| `GET /` shows "VisualStack API is up…" in production | The web build is missing or `SERVE_WEB` is off. Build with `npm run build` and set `NODE_ENV=production` |
+| CORS error / cookie not stored (split hosting) | `CLIENT_ORIGIN` mismatch, missing HTTPS, or web and API on different sites (see DEPLOYMENT.md §5) |
+| Signed out immediately after login / on refresh | Cookie blocked (cross-site or non-HTTPS). Check the `Set-Cookie` response in dev tools |
+| Signed out on every device after a reset | Expected: a password reset or *Sign out of all devices* revokes all sessions |
 | `JWT_SECRET must be set…` at boot | Set a ≥ 32-char `JWT_SECRET` (enforced in production) |
-| `Property 'resetCode' does not exist` (TypeScript) | Run `npm run db:generate` after pulling the schema change |
-| Prisma `P3009` / drift on migrate | Do not edit applied migrations. Locally: `npx prisma migrate reset` (destroys local data) |
+| `Property 'tokenVersion'/'resetCode' does not exist` | Run `npm run db:generate` after pulling a schema change |
+| `column "tokenVersion" does not exist` at runtime | Migrations not applied: `npm run db:migrate` (dev) / `npm run db:deploy` (prod) |
+| `column … already exists` while migrating | You created your own migration for the same columns. Delete the duplicate (see §8) |
+| Prisma `P3009` / drift | Never edit an applied migration. Locally: `npx prisma migrate reset` (destroys local data) |
+| Gallery says "Could not load your workspaces" | API unreachable or session expired; use **Retry**, or sign in again |
+| Save button is greyed out | Your role in the selected workspace is **Viewer** — ask the owner for edit access |
+| "No VisualStack account uses that email yet" when adding a teammate | They must sign up and verify first; then add them |
+| My old designs are missing after signing in | They are still in this browser: open **Gallery** — a banner offers to **Import** them into your workspace |
 | Blank page / React `ReactCurrentOwner` error | React must stay on 18.x (`react@18.3.1`); Isoflow is not compatible with React 19 |
 | `docker compose up` port 5432 in use | Another Postgres is running; stop it or change the published port and `DATABASE_URL` |
+| Build: `tsc`/`vite` not found on the host | Dev dependencies were skipped. Install with `npm ci --include=dev` |
 
 ---
 
 ## 16. Scripts reference
-
-| Script (run from repo root) | Action |
+| Script (run from the repo root) | Action |
 |---|---|
 | `npm run dev` | API (`tsx watch`) + web (Vite) together |
 | `npm run dev:server` / `dev:web` | Run one side only |
-| `npm run build:web` / `build:server` / `build:shared` | Production builds |
+| `npm run check` | **Everything**: generate, validate, typecheck, lint, tests, build |
+| `npm run typecheck` / `lint` / `test` | Individual quality gates |
+| `npm run build` | Build web and server (`build:web`, `build:server`, `build:shared` run one) |
+| `npm run start` | Run the built server (`apps/server/dist`) |
+| `npm run smoke` | Smoke-test a running server (`API_URL`, `ORIGIN`, `WEB=1`) |
 | `npm run docker:up` | Start local PostgreSQL |
-| `npm run db:migrate` / `db:deploy` / `db:generate` / `db:studio` | Prisma workflows (see §8) |
-| `npm run lint` | ESLint in every workspace |
+| `npm run db:migrate` / `db:deploy` / `db:generate` / `db:validate` / `db:studio` | Prisma workflows (see §8) |
 
 ---
 
 ## 17. Roadmap & known limitations
-
 **Known limitations (honest list)**
-- **Designs are not yet wired to the UI.** The API (`/api/designs`) is complete and authorized, but the studio's gallery
-  still persists to `localStorage`; "collaborators" in the gallery are local-only mock data.
-- **JWTs are stateless**: after a password reset, other already-issued sessions stay valid until they expire (7 days).
-  A `tokenVersion` column checked in `requireAuth` would allow instant revocation.
-- No per-IP rate limiting on auth endpoints (per-account limits exist). Add `express-rate-limit` behind a trusted proxy.
-- Gmail SMTP is rate-limited; move to a domain + transactional provider for volume.
+- **No real-time co-editing.** Saving is explicit and the **last save wins**: if two editors save the same design, the later
+  one overwrites the earlier. Optimistic concurrency (reject stale saves using `updatedAt`) is the next safeguard.
+- **Teammates must already have an account.** There are no pending email invitations yet; owners add existing, verified users.
+- Roles are **per workspace**, not per design.
+- No per-IP rate limiting on auth endpoints (per-account limits exist: 5 attempts per code, 30 s resend cooldown). Add
+  `express-rate-limit` before heavy public traffic.
+- Gmail SMTP is rate-limited; move to your own domain + a transactional provider for volume.
 - The 3D view is generated from the 2D data and is read-only.
-- Automated test suites are not in CI yet.
+- The browser-level (UI) tests are not committed; CI runs type-check, lint, API tests, migrations and the smoke test.
+- The `Dockerfile` and `render.yaml` are provided and follow the platforms' documented formats, but were not built/applied in the
+  environment this was developed in — CI and your first deploy are their first real run.
 
 **Next up**
-1. Connect the design gallery to `apiGetDesigns` / `apiSaveDesign` / `apiDeleteDesign` using `user.currentWorkspaceId`.
-2. Real collaboration: invite-by-email → `WorkspaceMember` rows with roles.
+1. Optimistic concurrency + "someone else changed this design" prompt.
+2. Email invitations for people who have no account yet.
 3. Text/DSL import (`esp1 -> broker: MQTT`) → nodes and connectors.
 4. Auto-layout button as an escape hatch, alignment guides, starter templates.
 5. Per-node icons in the 3D view; publishable `ArchitectureStudio` React component.
+6. Playwright UI suite in CI; per-IP rate limiting.
 
 ---
 
