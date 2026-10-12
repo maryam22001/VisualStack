@@ -31,12 +31,11 @@ and a full-stack account system — built as an easier alternative to text-first
 10. [Authentication & security model](#10-authentication--security-model)
 11. [Email infrastructure (Gmail SMTP)](#11-email-infrastructure-gmail-smtp)
 12. [Frontend architecture](#12-frontend-architecture)
-13. [Deployment](#13-deployment)
-14. [Testing](#14-testing)
-15. [Troubleshooting](#15-troubleshooting)
-16. [Scripts reference](#16-scripts-reference)
-17. [Roadmap & known limitations](#17-roadmap--known-limitations)
-18. [Contributing](#18-contributing)
+13. [Testing](#14-testing)
+14. [Troubleshooting](#15-troubleshooting)
+15. [Scripts reference](#16-scripts-reference)
+16. [Roadmap & known limitations](#17-roadmap--known-limitations)
+17. [Contributing](#18-contributing)
 
 ---
 
@@ -549,47 +548,8 @@ the visitor chose *Continue without an account*) → the studio, with the worksp
 
 ---
 
-## 13. Deployment
-> The complete, step-by-step guide is in **[DEPLOYMENT.md](./DEPLOYMENT.md)**. Summary:
 
-### Recommended: one service, one origin
-The API serves the built web app, so the session cookie is first-party and there is no CORS to configure:
-
-```text
-https://app.example.com  →  /  (React app)   /api/*  (Express)   →  PostgreSQL
-```
-
-| Path | How |
-|---|---|
-| **Render** (easiest) | New → **Blueprint** → select this repo. `render.yaml` creates the service + a PostgreSQL database; fill in `GMAIL_USER` and `GMAIL_APP_PASSWORD`. |
-| **Docker** (Fly.io, Railway, VPS) | `docker build -t visualstack .` then run it with `DATABASE_URL`, `JWT_SECRET`, `GMAIL_*`. The container runs migrations on start. |
-| **Split hosting** (static host + API) | Only on the **same parent domain** (`app.` + `api.`), with `CLIENT_ORIGIN`, `COOKIE_DOMAIN` and `VITE_API_BASE_URL`. `deploy.yml` publishes the static part to GitHub Pages. |
-
-### Production commands (what the hosts run)
-
-| Step | Command |
-|---|---|
-| Install | `npm ci --include=dev` *(build tools are devDependencies)* |
-| Build | `npm run db:generate && npm run build` |
-| Migrate | `npm run db:deploy` |
-| Start | `npm run start` |
-
-### Verify a live deployment
-```bash
-API_URL=https://app.example.com WEB=1 npm run smoke
-```
-
-### Production checklist
-- [ ] `npm run check` passes locally and **CI is green**
-- [ ] Migrations committed and applied (`npm run db:deploy`)
-- [ ] `NODE_ENV=production`; strong `JWT_SECRET`; `DATABASE_URL` and `GMAIL_*` stored as secrets
-- [ ] HTTPS on a custom domain; paid database plan with **backups**
-- [ ] `npm run smoke` passes against the live URL; boot log shows `[email] SMTP ready`
-- [ ] Sign-up emails tested on Gmail, Outlook and Yahoo (inbox + SPF/DKIM/DMARC pass)
-
----
-
-## 14. Testing
+## 13. Testing
 ### One command
 
 ```bash
@@ -637,7 +597,7 @@ mocked API during development. Those scripts are not committed yet; adding a Pla
 
 ---
 
-## 15. Troubleshooting
+## 14. Troubleshooting
 | Symptom | Likely cause / fix |
 |---|---|
 | `[email] SMTP error … EAUTH` | Wrong Gmail credentials. Use a 16-char **App Password**; 2-Step Verification must be on |
@@ -664,7 +624,7 @@ mocked API during development. Those scripts are not committed yet; adding a Pla
 
 ---
 
-## 16. Scripts reference
+## 15. Scripts reference
 | Script (run from the repo root) | Action |
 |---|---|
 | `npm run dev` | API (`tsx watch`) + web (Vite) together |
@@ -679,7 +639,7 @@ mocked API during development. Those scripts are not committed yet; adding a Pla
 
 ---
 
-## 17. Roadmap & known limitations
+## 16. Roadmap & known limitations
 **Known limitations (honest list)**
 - **No real-time co-editing.** Saving is explicit and the **last save wins**: if two editors save the same design, the later
   one overwrites the earlier. Optimistic concurrency (reject stale saves using `updatedAt`) is the next safeguard.
@@ -703,7 +663,7 @@ mocked API during development. Those scripts are not committed yet; adding a Pla
 
 ---
 
-## 18. Contributing
+## 17. Contributing
 
 1. Fork and branch: `git checkout -b feat/short-description`
 2. Keep TypeScript strict-clean: `npx tsc --noEmit -p apps/web/tsconfig.app.json` and `npx tsc --noEmit -p apps/server/tsconfig.json`
