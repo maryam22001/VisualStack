@@ -16,7 +16,11 @@ declare module 'express-serve-static-core' {
  * 3. the account must still exist and be verified.
  */
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
-    const token = req.cookies?.[COOKIE_NAME];
+    // Cross-site frontends (e.g. GitHub Pages -> vercel.app) often have the cookie blocked as
+    // third-party, so the same signed JWT is also accepted as a Bearer token.
+    const header = req.headers.authorization;
+    const bearer = header?.startsWith('Bearer ') ? header.slice(7).trim() : undefined;
+    const token = req.cookies?.[COOKIE_NAME] || bearer;
     if (!token) return res.status(401).json({ error: 'Not signed in.' });
 
     let claims: { userId: string; tokenVersion: number };
