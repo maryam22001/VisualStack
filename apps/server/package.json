@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "postinstall": "prisma generate",
+    "postinstall": "prisma generate && node scripts/migrate-on-vercel.cjs",
     "build": "prisma generate && tsc",
     "start": "node dist/index.js",
     "prisma:generate": "prisma generate",
