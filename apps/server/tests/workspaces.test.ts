@@ -10,11 +10,16 @@ describe('single-origin hosting (API serves the built web app)', () => {
   let dir: string;
 
   before(async () => {
+      try{
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vs-web-'));
     fs.mkdirSync(path.join(dir, 'assets'));
     fs.writeFileSync(path.join(dir, 'index.html'), '<!doctype html><title>VisualStack</title><div id="root"></div>');
     fs.writeFileSync(path.join(dir, 'assets', 'app-abc123.js'), 'console.log("hi")');
     api = await startApi({ SERVE_WEB: 'true', WEB_DIST_DIR: dir });
+      }catch(error){
+        console.error("Test setup failed:", error);
+        throw error;
+      }
   });
   after(() => { api.close(); fs.rmSync(dir, { recursive: true, force: true }); });
 
