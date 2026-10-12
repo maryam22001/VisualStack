@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { startApi, type Api } from '../helpers';
+import { startApi, type Api } from './helpers';
 
 describe('single-origin hosting (API serves the built web app)', () => {
   let api: Api;
