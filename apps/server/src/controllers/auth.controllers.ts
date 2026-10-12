@@ -235,8 +235,9 @@ export async function login(req: Request, res: Response) {
       });
     }
 
-    res.cookie(COOKIE_NAME, signSession(user.id, user.tokenVersion ?? 0), sessionCookieOptions());
-    return res.json({ user: toSession(user) });
+    const token = signSession(user.id, user.tokenVersion ?? 0);
+    res.cookie(COOKIE_NAME, token, sessionCookieOptions());
+    return res.json({ user: toSession(user), token });
   } catch (error) {
     console.error('[auth] login error:', error);
     return res.status(500).json({ error: 'Login failed.' });

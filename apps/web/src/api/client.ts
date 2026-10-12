@@ -59,21 +59,48 @@ export function errorMessage(err: unknown, fallback = 'Something went wrong'): s
   return err instanceof Error && err.message ? err.message : fallback;
 }
 
+// ---------- Session token ----------
+// The API sits on a different site than the frontend, so browsers that block third-party
+// cookies never send the session cookie back. The token is kept as a Bearer fallback.
+const TOKEN_KEY = 'visualstack:session-token';
+
+function getToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function setToken(token: string | null) {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // Storage unavailable (private mode): the cookie is the only session carrier.
+  }
+}
+
 // ---------- Transport ----------
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  const token = getToken();
   const res = await fetch(`${BASE_URL}${endpoint}`, {
+    ...options,
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
-    // Sends/receives the HTTP-only session cookie.
+    // Sends/receives the HTTP-only session cookie when the browser allows it.
     credentials: 'include',
-    ...options,
   });
 
   const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok) {
     // A 401 on a protected route means the session expired. (/auth/* 401s are just "wrong password" etc.)
+    if (res.status === 401 && (!endpoint.startsWith('/auth/') || endpoint === '/auth/me')) {
+      setToken(null);
+    }
     if (res.status === 401 && !endpoint.startsWith('/auth/')) {
       window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
     }
@@ -96,13 +123,26 @@ export const apiVerifyOtp = (userId: string, code: string) =>
 export const apiResendCode = (email: string) =>
   post<{ success: boolean; emailSent: boolean }>('/auth/resend-code', { email });
 
-export const apiLogin = (email: string, password: string) =>
-  post<{ user: UserSession }>('/auth/login', { email, password });
+export const apiLogin = async (email: string, password: string) => {
+  const result = await post<{ user: UserSession; token?: string }>('/auth/login', { email, password });
+  if (result.token) setToken(result.token);
+  return { user: result.user };
+};
 
-export const apiLogout = () => post<{ success: boolean }>('/auth/logout', {});
+export const apiLogout = async () => {
+  try {
+    return await post<{ success: boolean }>('/auth/logout', {});
+  } finally {
+    setToken(null);
+  }
+};
 
 /** Revokes every session of this account, on every device. */
-export const apiLogoutAll = () => post<{ success: boolean }>('/auth/logout-all', {});
+export const apiLogoutAll = async () => {
+  const result = await post<{ success: boolean }>('/auth/logout-all', {});
+  setToken(null);
+  return result;
+};
 
 /** Asks the server who the session cookie belongs to. 401 = not signed in. */
 export const apiMe = () => request<{ user: UserSession }>('/auth/me');
