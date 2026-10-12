@@ -28,7 +28,7 @@ app.use((_req, res, next) => {
 
 // CLIENT_ORIGIN may be a comma-separated list, e.g. "https://app.example.com,http://localhost:5174".
 // Not needed when the API serves the web app itself (same origin).
-const allowedOrigins = (process.env.CLIENT_ORIGIN || 'http://localhost:5174')
+const allowedOrigins = (process.env.CLIENT_ORIGIN || process.env.VITE_API_BASE_URL ||'http://localhost:5174' )
     .split(',')
     .map((o) => o.trim())
     .filter(Boolean);
