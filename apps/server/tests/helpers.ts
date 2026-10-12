@@ -81,9 +81,9 @@ export function createFakeDb() {
 
 export type Api = Awaited<ReturnType<typeof startApi>>;
 
-export async function startApi(env: Record<string, string> = {}) {
+export async function startApi(config: any = {}) {
   const db = createFakeDb();
-  Object.assign(process.env, { NODE_ENV: 'test', JWT_SECRET: 'x'.repeat(48) }, env);
+  Object.assign(process.env, { NODE_ENV: 'test', JWT_SECRET: 'x'.repeat(48) }, config);
 
   // Replace the PrismaClient module BEFORE the app (and its controllers) are loaded.
   const dbPath = require.resolve(path.resolve(__dirname, '../src/services/db.service.ts'));
@@ -95,7 +95,7 @@ export async function startApi(env: Record<string, string> = {}) {
 
   // Keep test output readable (the Dev Mailer prints codes to the console).
   const real = { log: console.log, warn: console.warn, error: console.error };
-  console.log = console.warn = console.error = () => {};
+  console.log = console.warn = console.error = () => { };
 
   async function raw(p: string, init: RequestInit = {}) {
     const res = await fetch(base + p, init);
