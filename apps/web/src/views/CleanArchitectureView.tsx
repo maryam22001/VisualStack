@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { IconPicker } from '../components/IconPicker';
+import { NodeEditModal, ColorPicker } from '../components/NodeEditModal';
 import type { IconResult } from '../utils/IconLibrary';
 import type { VisualStackCluster, VisualStackNode, VisualStackConnector } from '../types/project';
 import { snapToGrid } from '../utils/geometry';
@@ -700,7 +701,7 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
                 fontSize="16"
                 fontWeight="700"
                 fontFamily="system-ui, -apple-system, sans-serif"
-                fill={isDark ? '#e2e8f0' : '#1e293b'}
+                fill={c.borderColor && c.borderColor.startsWith('#') ? c.borderColor : isDark ? '#e2e8f0' : '#1e293b'}
               >
                 {c.title}
               </text>
@@ -815,13 +816,27 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
 
               <rect width={node.width} height={node.height + 36} fill="transparent" />
 
+              {node.color && (
+                <rect
+                  x={(node.width - 56) / 2}
+                  y={-2}
+                  width={56}
+                  height={56}
+                  rx={14}
+                  fill={node.color}
+                  fillOpacity={0.12}
+                  stroke={node.color}
+                  strokeWidth={2}
+                />
+              )}
+
               <SafeSvgIcon
                 url={node.iconUrl}
                 x={(node.width - 44) / 2}
                 y={4}
                 size={44}
                 fallbackLabel={node.label || 'S'}
-                color="#0284c7"
+                color={node.color || '#0284c7'}
               />
 
               <text
@@ -865,153 +880,21 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
 
       {/* Edit Node Modal */}
       {editingNode && (
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            background: 'rgba(0,0,0,0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 100
+        <NodeEditModal
+          key={editingNode.id}
+          node={editingNode}
+          theme={theme}
+          onCancel={() => setEditingNode(null)}
+          onDelete={handleDeleteNode}
+          onPickIcon={(draft) => {
+            setEditingNode(draft);
+            setPickerNodeId(draft.id);
           }}
-          onClick={() => setEditingNode(null)}
-        >
-          <div
-            style={{
-              background: isDark ? '#1e293b' : '#ffffff',
-              color: isDark ? '#f8fafc' : '#0f172a',
-              padding: '24px',
-              borderRadius: '12px',
-              width: '420px',
-              border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
-              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.3)'
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 style={{ margin: '0 0 16px 0', fontSize: '17px', fontWeight: 'bold' }}>
-              Edit Node: {editingNode.label}
-            </h3>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>
-                  Node Label
-                </label>
-                <input
-                  type="text"
-                  value={editingNode.label}
-                  onChange={(e) => setEditingNode({ ...editingNode, label: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '8px 10px',
-                    borderRadius: '6px',
-                    border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
-                    background: isDark ? '#0f172a' : '#f8fafc',
-                    color: isDark ? '#f8fafc' : '#0f172a'
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>
-                  Subtitle / Detail Text
-                </label>
-                <input
-                  type="text"
-                  value={editingNode.subtext || ''}
-                  onChange={(e) => setEditingNode({ ...editingNode, subtext: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '8px 10px',
-                    borderRadius: '6px',
-                    border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
-                    background: isDark ? '#0f172a' : '#f8fafc',
-                    color: isDark ? '#f8fafc' : '#0f172a'
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>
-                  Component Tool Icon
-                </label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  {editingNode.iconUrl && (
-                    <img src={editingNode.iconUrl} alt="icon" style={{ width: 36, height: 36, objectFit: 'contain' }} />
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setPickerNodeId(editingNode.id)}
-                    style={{
-                      padding: '8px 14px',
-                      background: '#0284c7',
-                      color: '#ffffff',
-                      border: 'none',
-                      borderRadius: '6px',
-                      fontSize: '12px',
-                      fontWeight: '600',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    🔍 Change Tool Icon (200k+)
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '22px' }}>
-              <button
-                onClick={() => handleDeleteNode(editingNode.id)}
-                style={{
-                  padding: '7px 14px',
-                  borderRadius: '6px',
-                  border: 'none',
-                  background: '#ef4444',
-                  color: '#fff',
-                  cursor: 'pointer',
-                  fontSize: '12px'
-                }}
-              >
-                Delete Node
-              </button>
-
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button
-                  onClick={() => setEditingNode(null)}
-                  style={{
-                    padding: '7px 14px',
-                    borderRadius: '6px',
-                    border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
-                    background: 'transparent',
-                    color: isDark ? '#cbd5e1' : '#475569',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => {
-                    const nextNodes = nodes.map((n) => (n.id === editingNode.id ? editingNode : n));
-                    setNodes(nextNodes);
-                    setEditingNode(null);
-                  }}
-                  style={{
-                    padding: '7px 16px',
-                    borderRadius: '6px',
-                    border: 'none',
-                    background: '#0284c7',
-                    color: '#fff',
-                    fontWeight: 'bold',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Save Changes
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+          onApply={(updated) => {
+            setNodes(nodes.map((n) => (n.id === updated.id ? updated : n)));
+            setEditingNode(null);
+          }}
+        />
       )}
 
       {/* Edit Box Cluster Modal */}
@@ -1101,6 +984,19 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
                     }}
                   />
                 </div>
+              </div>
+
+              <div>
+                <span style={{ display: 'block', fontSize: '12px', color: '#64748b', marginBottom: '6px' }}>
+                  Pod Color
+                </span>
+                <ColorPicker
+                  isDark={isDark}
+                  value={editingCluster.borderColor?.startsWith('#') ? editingCluster.borderColor : undefined}
+                  onChange={(hex) =>
+                    setEditingCluster({ ...editingCluster, borderColor: hex, color: `${hex}14` })
+                  }
+                />
               </div>
             </div>
 
