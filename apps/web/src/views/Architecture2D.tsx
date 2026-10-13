@@ -3,7 +3,7 @@ import { IconPicker } from '../components/IconPicker';
 import { NodeEditModal } from '../components/NodeEditModal';
 import type { IconResult } from '../utils/IconLibrary';
 import type { VisualStackNode, VisualStackConnector } from '../types/project';
-import { snapToGrid } from '../utils/geometry';
+import { getOrthogonalPathMidpoint, snapToGrid } from '../utils/geometry';
 export interface Architecture2DProps {
   theme?: 'dark' | 'light';
   onToggleTheme?: () => void;
@@ -338,6 +338,7 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
     >
       {/* Action Bar */}
       <div
+        title="Double-click a node to edit it. Drag its blue handles to resize. Double-click a wire to add or edit its label."
         style={{
           position: 'absolute',
           top: 16,
@@ -367,6 +368,9 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
         >
           + Add Architecture Node
         </button>
+        <span style={{ alignSelf: 'center', maxWidth: 260, fontSize: 11, color: isDark ? '#94a3b8' : '#64748b' }}>
+          Double-click a wire to add or edit its label
+        </span>
 
         {connectingFrom && (
           <button
@@ -469,6 +473,8 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
           const from = getNodeCenter(conn.from);
           const to = getNodeCenter(conn.to);
           const midX = (from.x + to.x) / 2;
+          const labelPoint = getOrthogonalPathMidpoint(from, to);
+          const labelWidth = Math.min(280, Math.max(48, (conn.label?.length ?? 0) * 6.4 + 16));
           const pathD = `M ${from.x} ${from.y} L ${midX} ${from.y} L ${midX} ${to.y} L ${to.x} ${to.y}`;
 
           const markerId = `wire-arrow-${conn.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
@@ -489,6 +495,13 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
               </defs>
               <path
                 d={pathD}
+                stroke="transparent"
+                strokeWidth="12"
+                fill="none"
+                pointerEvents="stroke"
+              />
+              <path
+                d={pathD}
                 stroke={conn.color}
                 strokeWidth="2.2"
                 strokeDasharray={conn.dashed ? '6 4' : 'none'}
@@ -496,16 +509,30 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
                 markerEnd={`url(#${markerId})`}
               />
               {conn.label && (
-                <text
-                  x={midX}
-                  y={(from.y + to.y) / 2 - 6}
-                  fontSize="11"
-                  fill={isDark ? '#94a3b8' : '#475569'}
-                  textAnchor="middle"
-                  fontWeight="600"
-                >
-                  {conn.label}
-                </text>
+                <g pointerEvents="none">
+                  <rect
+                    x={labelPoint.x - labelWidth / 2}
+                    y={labelPoint.y - 12}
+                    width={labelWidth}
+                    height="20"
+                    rx="5"
+                    fill={isDark ? '#1e293b' : '#ffffff'}
+                    stroke={isDark ? '#475569' : '#cbd5e1'}
+                    opacity="0.96"
+                  />
+                  <text
+                    x={labelPoint.x}
+                    y={labelPoint.y + 2}
+                    fontSize={labelWidth >= 280 ? '9' : '11'}
+                    fill={isDark ? '#e2e8f0' : '#334155'}
+                    textAnchor="middle"
+                    fontWeight="600"
+                    textLength={labelWidth - 12}
+                    lengthAdjust="spacingAndGlyphs"
+                  >
+                    {conn.label}
+                  </text>
+                </g>
               )}
             </g>
           );
@@ -709,8 +736,9 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
             onClick={(e) => e.stopPropagation()}
           >
             <h3 style={{ margin: '0 0 16px' }}>Edit wire</h3>
-            <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Name</label>
+            <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Wire label</label>
             <input
+              placeholder="e.g. HTTPS / JSON"
               value={editingConnector.label || ''}
               onChange={(e) => setEditingConnector({ ...editingConnector, label: e.target.value })}
               style={{ width: '100%', boxSizing: 'border-box', padding: 8, marginBottom: 12, color: isDark ? '#f8fafc' : '#0f172a', background: isDark ? '#0f172a' : '#f8fafc', border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`, borderRadius: 6 }}
@@ -735,7 +763,7 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
               <button onClick={() => { handleDeleteConnector(editingConnector.id); setEditingConnector(null); }} style={{ padding: '7px 12px', border: 0, borderRadius: 6, background: '#ef4444', color: '#fff', cursor: 'pointer' }}>Delete wire</button>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={() => setEditingConnector(null)} style={{ padding: '7px 12px', border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`, borderRadius: 6, background: 'transparent', color: 'inherit', cursor: 'pointer' }}>Cancel</button>
-                <button onClick={() => { const next = connectors.map((item) => item.id === editingConnector.id ? editingConnector : item); setConnectors(next); notifyChange(nodes, next); setEditingConnector(null); }} style={{ padding: '7px 12px', border: 0, borderRadius: 6, background: '#0284c7', color: '#fff', cursor: 'pointer' }}>Save</button>
+                <button onClick={() => { const next = connectors.map((item) => item.id === editingConnector.id ? { ...editingConnector, label: editingConnector.label?.trim() || undefined } : item); setConnectors(next); notifyChange(nodes, next); setEditingConnector(null); }} style={{ padding: '7px 12px', border: 0, borderRadius: 6, background: '#0284c7', color: '#fff', cursor: 'pointer' }}>Save</button>
               </div>
             </div>
           </div>
