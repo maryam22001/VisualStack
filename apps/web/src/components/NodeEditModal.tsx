@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import type { VisualStackNode } from '../types/project';
 
-export const NODE_COLOR_PRESETS = [
+const NODE_COLOR_PRESETS = [
   '#0284c7',
   '#16a34a',
   '#d97706',
@@ -73,7 +73,7 @@ interface NodeEditModalProps {
   onApply: (node: VisualStackNode) => void;
   onCancel: () => void;
   onDelete: (id: string) => void;
-  onPickIcon?: (node: VisualStackNode) => void;
+  onPickIcon?: (node: VisualStackNode, onIconSelected: (iconUrl: string) => void) => void;
 }
 
 export const NodeEditModal: React.FC<NodeEditModalProps> = ({
@@ -87,10 +87,6 @@ export const NodeEditModal: React.FC<NodeEditModalProps> = ({
   const isDark = theme === 'dark';
   const [draft, setDraft] = useState<VisualStackNode>(node);
   const [newSpec, setNewSpec] = useState('');
-
-  useEffect(() => {
-    setDraft((d) => (d.id === node.id ? { ...d, iconUrl: node.iconUrl } : node));
-  }, [node]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -190,12 +186,12 @@ export const NodeEditModal: React.FC<NodeEditModalProps> = ({
 
           <div>
             <label htmlFor="node-subtext" style={labelStyle}>Description / Primary Subtext</label>
-            <input
+            <textarea
               id="node-subtext"
-              type="text"
+              rows={3}
               value={draft.subtext || ''}
               onChange={(e) => setDraft({ ...draft, subtext: e.target.value })}
-              style={inputStyle}
+              style={{ ...inputStyle, minHeight: '72px', resize: 'vertical', fontFamily: 'inherit' }}
             />
           </div>
 
@@ -299,7 +295,7 @@ export const NodeEditModal: React.FC<NodeEditModalProps> = ({
                 )}
                 <button
                   type="button"
-                  onClick={() => onPickIcon(draft)}
+                  onClick={() => onPickIcon(draft, (iconUrl) => setDraft((current) => ({ ...current, iconUrl })))}
                   style={{
                     padding: '8px 14px',
                     borderRadius: '8px',

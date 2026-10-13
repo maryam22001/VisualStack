@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { IconPicker } from '../components/IconPicker';
-import { NodeEditModal, ColorPicker } from '../components/NodeEditModal';
+import { ColorPicker, NodeEditModal } from '../components/NodeEditModal';
 import type { IconResult } from '../utils/IconLibrary';
 import type { VisualStackCluster, VisualStackNode, VisualStackConnector } from '../types/project';
 import { snapToGrid } from '../utils/geometry';
@@ -253,8 +253,10 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
 
   // Modals & Universal Icon Picker
   const [editingNode, setEditingNode] = useState<VisualStackNode | null>(null);
+  const [editingConnector, setEditingConnector] = useState<VisualStackConnector | null>(null);
   const [editingCluster, setEditingCluster] = useState<VisualStackCluster | null>(null);
   const [pickerNodeId, setPickerNodeId] = useState<string | null>(null);
+  const updateEditingNodeIconRef = useRef<((iconUrl: string) => void) | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const isDark = theme === 'dark';
@@ -701,7 +703,7 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
                 fontSize="16"
                 fontWeight="700"
                 fontFamily="system-ui, -apple-system, sans-serif"
-                fill={c.borderColor && c.borderColor.startsWith('#') ? c.borderColor : isDark ? '#e2e8f0' : '#1e293b'}
+                fill={isDark ? '#e2e8f0' : '#1e293b'}
               >
                 {c.title}
               </text>
@@ -717,35 +719,34 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
           const midX = (from.x + to.x) / 2;
           const pathD = `M ${from.x} ${from.y} L ${midX} ${from.y} L ${midX} ${to.y} L ${to.x} ${to.y}`;
 
-          const marker = isSelected
-            ? 'url(#clean-arr-selected)'
-            : line.color === '#059669'
-            ? 'url(#clean-arr-green)'
-            : line.color === '#d97706'
-            ? 'url(#clean-arr-amber)'
-            : line.color === '#dc2626'
-            ? 'url(#clean-arr-red)'
-            : line.color === '#64748b'
-            ? 'url(#clean-arr-gray)'
-            : 'url(#clean-arr-blue)';
+          const markerId = `clean-wire-arrow-${line.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+          const markerColor = isSelected ? '#f43f5e' : line.color;
 
           return (
             <g
               key={line.id}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                setEditingConnector(line);
+              }}
+              style={{ cursor: 'pointer' }}
               onClick={(e) => {
                 e.stopPropagation();
                 setSelectedId(line.id);
               }}
-              onDoubleClick={() => handleDeleteConnector(line.id)}
-              style={{ cursor: 'pointer' }}
             >
+              <defs>
+                <marker id={markerId} viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                  <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill={markerColor} />
+                </marker>
+              </defs>
               <path
                 d={pathD}
                 stroke={isSelected ? '#f43f5e' : line.color}
                 strokeWidth={isSelected ? '3.5' : '2'}
                 strokeDasharray={line.dashed ? '6 4' : 'none'}
                 fill="none"
-                markerEnd={marker}
+                markerEnd={`url(#${markerId})`}
               />
               {line.label && (
                 <text
@@ -779,6 +780,8 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
         {/* 3. Universal Service Nodes */}
         {nodes.map((node) => {
           const isSelected = selectedId === node.id;
+          const specs = node.specs ?? [];
+          const contentHeight = node.height + 36 + specs.length * 16;
           return (
             <g
               key={node.id}
@@ -805,7 +808,7 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
                   x="-8"
                   y="-8"
                   width={node.width + 16}
-                  height={node.height + 46}
+                  height={contentHeight + 10}
                   rx="10"
                   fill="none"
                   stroke="#f43f5e"
@@ -814,21 +817,7 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
                 />
               )}
 
-              <rect width={node.width} height={node.height + 36} fill="transparent" />
-
-              {node.color && (
-                <rect
-                  x={(node.width - 56) / 2}
-                  y={-2}
-                  width={56}
-                  height={56}
-                  rx={14}
-                  fill={node.color}
-                  fillOpacity={0.12}
-                  stroke={node.color}
-                  strokeWidth={2}
-                />
-              )}
+              <rect width={node.width} height={contentHeight} fill="transparent" />
 
               <SafeSvgIcon
                 url={node.iconUrl}
@@ -836,7 +825,7 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
                 y={4}
                 size={44}
                 fallbackLabel={node.label || 'S'}
-                color={node.color || '#0284c7'}
+                color="#0284c7"
               />
 
               <text
@@ -863,6 +852,19 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
                 </text>
               )}
 
+              {specs.map((spec, index) => (
+                <text
+                  key={`${spec}-${index}`}
+                  x={node.width / 2}
+                  y={node.height + 44 + index * 16}
+                  fontSize="10.5"
+                  fill={node.color || (isDark ? '#38bdf8' : '#0284c7')}
+                  textAnchor="middle"
+                >
+                  {spec}
+                </text>
+              ))}
+
               <circle
                 cx={node.width + 4}
                 cy={24}
@@ -886,12 +888,13 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
           theme={theme}
           onCancel={() => setEditingNode(null)}
           onDelete={handleDeleteNode}
-          onPickIcon={(draft) => {
+          onPickIcon={(draft, updateIcon) => {
             setEditingNode(draft);
+            updateEditingNodeIconRef.current = updateIcon;
             setPickerNodeId(draft.id);
           }}
           onApply={(updated) => {
-            setNodes(nodes.map((n) => (n.id === updated.id ? updated : n)));
+            setNodes(nodes.map((node) => node.id === updated.id ? updated : node));
             setEditingNode(null);
           }}
         />
@@ -992,9 +995,9 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
                 </span>
                 <ColorPicker
                   isDark={isDark}
-                  value={editingCluster.borderColor?.startsWith('#') ? editingCluster.borderColor : undefined}
-                  onChange={(hex) =>
-                    setEditingCluster({ ...editingCluster, borderColor: hex, color: `${hex}14` })
+                  value={editingCluster.borderColor}
+                  onChange={(color) =>
+                    setEditingCluster({ ...editingCluster, borderColor: color, color: `${color}14` })
                   }
                 />
               </div>
@@ -1068,9 +1071,54 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
             if (editingNode && editingNode.id === pickerNodeId) {
               setEditingNode({ ...editingNode, iconUrl: icon.url });
             }
+            updateEditingNodeIconRef.current?.(icon.url);
+            updateEditingNodeIconRef.current = null;
             setPickerNodeId(null);
           }}
         />
+      )}
+
+      {editingConnector && (
+        <div
+          style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}
+          onClick={() => setEditingConnector(null)}
+        >
+          <div
+            style={{ background: isDark ? '#1e293b' : '#fff', color: isDark ? '#f8fafc' : '#0f172a', padding: 24, borderRadius: 12, width: 380, border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}` }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 style={{ margin: '0 0 16px' }}>Edit wire</h3>
+            <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Name</label>
+            <input
+              value={editingConnector.label || ''}
+              onChange={(e) => setEditingConnector({ ...editingConnector, label: e.target.value })}
+              style={{ width: '100%', boxSizing: 'border-box', padding: 8, marginBottom: 12, color: isDark ? '#f8fafc' : '#0f172a', background: isDark ? '#0f172a' : '#f8fafc', border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`, borderRadius: 6 }}
+            />
+            <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Line style</label>
+            <select
+              value={editingConnector.dashed ? 'dotted' : 'solid'}
+              onChange={(e) => setEditingConnector({ ...editingConnector, dashed: e.target.value === 'dotted' })}
+              style={{ width: '100%', padding: 8, marginBottom: 12, color: isDark ? '#f8fafc' : '#0f172a', background: isDark ? '#0f172a' : '#f8fafc', border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`, borderRadius: 6 }}
+            >
+              <option value="solid">Solid</option>
+              <option value="dotted">Dotted</option>
+            </select>
+            <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Color</label>
+            <input
+              type="color"
+              value={/^#[0-9a-f]{6}$/i.test(editingConnector.color) ? editingConnector.color : '#0284c7'}
+              onChange={(e) => setEditingConnector({ ...editingConnector, color: e.target.value })}
+              style={{ display: 'block', marginBottom: 20 }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <button onClick={() => { handleDeleteConnector(editingConnector.id); setEditingConnector(null); }} style={{ padding: '7px 12px', border: 0, borderRadius: 6, background: '#ef4444', color: '#fff', cursor: 'pointer' }}>Delete wire</button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => setEditingConnector(null)} style={{ padding: '7px 12px', border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`, borderRadius: 6, background: 'transparent', color: 'inherit', cursor: 'pointer' }}>Cancel</button>
+                <button onClick={() => { setConnectors(connectors.map((item) => item.id === editingConnector.id ? editingConnector : item)); setEditingConnector(null); }} style={{ padding: '7px 12px', border: 0, borderRadius: 6, background: '#0284c7', color: '#fff', cursor: 'pointer' }}>Save</button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

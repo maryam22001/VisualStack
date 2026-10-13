@@ -35,6 +35,7 @@ export function convertProjectToIsoflowData(project: VisualStackProject) {
   const items = rawNodes.map((n, idx) => ({
     id: String(n.id || `node-${idx}`),
     name: String(n.label || `Node ${idx + 1}`),
+    description: n.subtext,
     icon: 'icon-server'
   }));
 
@@ -44,8 +45,8 @@ export function convertProjectToIsoflowData(project: VisualStackProject) {
   const occupiedTiles = new Set<string>();
   const sceneItems = items.map((item, idx) => {
     const rawNode = rawNodes[idx];
-    let tileX = Math.round((rawNode?.x || idx * 120) / 120);
-    const tileY = Math.round((rawNode?.y || 0) / 120);
+    let tileX = Math.round((rawNode?.x ?? idx * 120) / 120);
+    const tileY = Math.round((rawNode?.y ?? 0) / 120);
 
     // Prevent identical tile overlap
     while (occupiedTiles.has(`${tileX},${tileY}`)) {
@@ -67,7 +68,8 @@ export function convertProjectToIsoflowData(project: VisualStackProject) {
     .filter((c) => c && validIdSet.has(String(c.from)) && validIdSet.has(String(c.to)) && c.from !== c.to)
     .map((c, idx) => ({
       id: String(c.id || `iso-conn-${idx}`),
-      color: 'c-blue',
+      color: isoflowColors.find((color) => color.value === c.color)?.id ?? 'c-blue',
+      description: c.label,
       style: c.dashed ? ('DOTTED' as const) : ('SOLID' as const),
       anchors: [
         {

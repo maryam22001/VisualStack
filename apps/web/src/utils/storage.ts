@@ -42,39 +42,32 @@ export async function exportSvgToPng(
   filename: string,
   copyToClipboard = false
 ): Promise<void> {
-  const serializer = new XMLSerializer();
-  const svgString = serializer.serializeToString(svgElement);
+  const svgString = serializeSvgForExport(svgElement);
   const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
   const url = URL.createObjectURL(svgBlob);
 
   const img = new Image();
-  img.src = url;
+  try {
+    img.src = url;
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('The diagram SVG could not be rendered as an image.'));
+    });
 
-  await new Promise((resolve, reject) => {
-    img.onload = resolve;
-    img.onerror = reject;
-  });
+    const { width, height } = getSvgExportSize(svgElement);
+    const scaleFactor = 2;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(width * scaleFactor);
+    canvas.height = Math.ceil(height * scaleFactor);
 
-  // Calculate canvas dimensions from SVG bounding box or attributes
-  const bbox = svgElement.getBoundingClientRect();
-  const width = Math.max(bbox.width, 1200);
-  const height = Math.max(bbox.height, 800);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Could not create a canvas for PNG export.');
 
-  // 2x scale for sharp, retina-quality renders
-  const scaleFactor = 2;
-  const canvas = document.createElement('canvas');
-  canvas.width = width * scaleFactor;
-  canvas.height = height * scaleFactor;
-
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-
-  ctx.scale(scaleFactor, scaleFactor);
-  ctx.drawImage(img, 0, 0, width, height);
-  URL.revokeObjectURL(url);
-
-  canvas.toBlob(async (blob) => {
-    if (!blob) return;
+    ctx.scale(scaleFactor, scaleFactor);
+    ctx.drawImage(img, 0, 0, width, height);
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((result) => result ? resolve(result) : reject(new Error('PNG image generation failed.')), 'image/png');
+    });
 
     if (copyToClipboard && navigator.clipboard && window.ClipboardItem) {
       try {
@@ -86,16 +79,53 @@ export async function exportSvgToPng(
       }
     }
 
-    // Direct download fallback / default
     const downloadUrl = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.href = downloadUrl;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(downloadUrl);
-  }, 'image/png');
+    try {
+      link.href = downloadUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+    } finally {
+      link.remove();
+      URL.revokeObjectURL(downloadUrl);
+    }
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+export function serializeSvgForExport(svgElement: SVGElement): string {
+  const clone = svgElement.cloneNode(true) as SVGElement;
+  const { width, height } = getSvgExportSize(svgElement);
+  const computed = window.getComputedStyle(svgElement);
+  const transform = computed.transform === 'none' ? new DOMMatrix() : new DOMMatrix(computed.transform);
+
+  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  clone.setAttribute('width', String(width));
+  clone.setAttribute('height', String(height));
+  clone.style.width = `${width}px`;
+  clone.style.height = `${height}px`;
+
+  if (!clone.hasAttribute('viewBox') && computed.transform !== 'none' && transform.a && transform.d) {
+    const x = -transform.e / transform.a;
+    const y = -transform.f / transform.d;
+    clone.setAttribute('viewBox', `${x} ${y} ${width / transform.a} ${height / transform.d}`);
+    clone.style.transform = 'none';
+    clone.style.transformOrigin = '0 0';
+  }
+
+  return new XMLSerializer().serializeToString(clone);
+}
+
+function getSvgExportSize(svgElement: SVGElement): { width: number; height: number } {
+  const rect = svgElement.getBoundingClientRect();
+  const width = svgElement.clientWidth || Number(svgElement.getAttribute('width')) || rect.width;
+  const height = svgElement.clientHeight || Number(svgElement.getAttribute('height')) || rect.height;
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    throw new Error('The diagram has no measurable size to export.');
+  }
+  return { width, height };
 }
 export const defaultProject: VisualStackProject = {
   id: 'proj-default',
