@@ -102,6 +102,8 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
 
   // Dragging Nodes
   const [draggedNode, setDraggedNode] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null);
+  const resizeNodesRef = useRef(nodes);
+  const resizeCleanupRef = useRef<(() => void) | null>(null);
 
   // Connection Wire tool
   const [connectingFrom, setConnectingFrom] = useState<string | null>(null);
@@ -109,6 +111,7 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
 
   // Modals & Pickers
   const [editingNode, setEditingNode] = useState<VisualStackNode | null>(null);
+  const [editingConnector, setEditingConnector] = useState<VisualStackConnector | null>(null);
   const [pickerNodeId, setPickerNodeId] = useState<string | null>(null);
   const connectorIdRef = useRef(0);
 
@@ -159,7 +162,7 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
 
   
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (draggedNode || editingNode || connectingFrom) return;
+    if (draggedNode || resizeCleanupRef.current || editingNode || connectingFrom) return;
     setIsPanning(true);
     setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
   };
@@ -199,10 +202,61 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
     setDraggedNode(null);
   };
 
+  useEffect(() => () => resizeCleanupRef.current?.(), []);
+
+  const startNodeResize = (
+    e: React.PointerEvent<SVGGElement>,
+    node: VisualStackNode,
+    width: number,
+    height: number,
+    axis: 'horizontal' | 'both'
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    resizeCleanupRef.current?.();
+    setSelectedNodeId(node.id);
+    setIsPanning(false);
+    setDraggedNode(null);
+    resizeNodesRef.current = nodes;
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const pointerId = e.pointerId;
+    const onPointerMove = (event: PointerEvent) => {
+      if (event.pointerId !== pointerId) return;
+      const nextWidth = Math.min(800, Math.max(190, width + (event.clientX - startX) / scale));
+      const nextHeight = axis === 'both'
+        ? Math.min(600, Math.max(90, height + (event.clientY - startY) / scale))
+        : height;
+      const nextNodes = resizeNodesRef.current.map((item) =>
+        item.id === node.id ? { ...item, width: nextWidth, height: nextHeight } : item
+      );
+      resizeNodesRef.current = nextNodes;
+      setNodes(nextNodes);
+    };
+    const finishResize = (event: PointerEvent) => {
+      if (event.pointerId !== pointerId) return;
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', finishResize);
+      window.removeEventListener('pointercancel', finishResize);
+      resizeCleanupRef.current = null;
+      notifyChange(resizeNodesRef.current, connectors);
+    };
+    resizeCleanupRef.current = () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', finishResize);
+      window.removeEventListener('pointercancel', finishResize);
+    };
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', finishResize);
+    window.addEventListener('pointercancel', finishResize);
+  };
+
   const getNodeCenter = (id: string) => {
     const n = nodes.find((node) => node.id === id);
     if (!n) return { x: 0, y: 0 };
-    return { x: n.x + n.width / 2, y: n.y + n.height / 2 };
+    const { width, height } = getCardSize(n);
+    return { x: n.x + width / 2, y: n.y + height / 2 };
   };
 
   const handleAddNode = () => {
@@ -415,22 +469,29 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
           const midX = (from.x + to.x) / 2;
           const pathD = `M ${from.x} ${from.y} L ${midX} ${from.y} L ${midX} ${to.y} L ${to.x} ${to.y}`;
 
-          const marker =
-            conn.color === '#d97706'
-              ? 'url(#arrow-amber)'
-              : conn.color === '#9333ea'
-              ? 'url(#arrow-purple)'
-              : 'url(#arrow-blue)';
+          const markerId = `wire-arrow-${conn.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
 
           return (
-            <g key={conn.id} onDoubleClick={() => handleDeleteConnector(conn.id)} style={{ cursor: 'pointer' }}>
+            <g
+              key={conn.id}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                setEditingConnector(conn);
+              }}
+              style={{ cursor: 'pointer' }}
+            >
+              <defs>
+                <marker id={markerId} viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                  <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill={conn.color} />
+                </marker>
+              </defs>
               <path
                 d={pathD}
                 stroke={conn.color}
                 strokeWidth="2.2"
                 strokeDasharray={conn.dashed ? '6 4' : 'none'}
                 fill="none"
-                markerEnd={marker}
+                markerEnd={`url(#${markerId})`}
               />
               {conn.label && (
                 <text
@@ -464,6 +525,7 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
         {/* Nodes */}
         {nodes.map((node) => {
           const isSelected = selectedNodeId === node.id;
+          const { width: cardWidth, height: cardHeight, badgeY, descriptionLines } = getCardSize(node);
           return (
             <g
               key={node.id}
@@ -479,17 +541,21 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
                 const mouseY = (e.clientY - pan.y) / scale;
                 setDraggedNode({ id: node.id, offsetX: mouseX - node.x, offsetY: mouseY - node.y });
               }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                setEditingNode(node);
+              }}
               style={{ cursor: 'move' }}
             >
               <rect
-                width={node.width}
-                height={node.height}
+                width={cardWidth}
+                height={cardHeight}
                 rx="10"
                 fill={isDark ? '#1e293b' : '#ffffff'}
                 stroke={isSelected ? '#f43f5e' : (node.color || '#0284c7')}
                 strokeWidth={isSelected ? '3' : '2'}
               />
-            <rect width="6" height={node.height} rx="3" fill={node.color || '#0284c7'} />
+            <rect width="6" height={cardHeight} rx="3" fill={node.color || '#0284c7'} />
 
             {node.iconUrl && node.iconUrl.trim() !== '' ? (
   <image
@@ -536,15 +602,17 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
               fontFamily="system-ui, sans-serif"
               fill={isDark ? '#94a3b8' : '#64748b'}
             >
-              {node.subtext}
+              {descriptionLines.map((line, index) => (
+                <tspan key={index} x="58" dy={index === 0 ? 0 : 14}>{line}</tspan>
+              ))}
             </text>
 
             {node.badge && (
               <>
-                <rect x="58" y="58" width={node.width - 70} height="20" rx="4" fill={isDark ? '#0f172a' : '#f1f5f9'} />
+                <rect x="58" y={badgeY} width={cardWidth - 70} height="20" rx="4" fill={isDark ? '#0f172a' : '#f1f5f9'} />
                 <text
-                  x={58 + (node.width - 70) / 2}
-                  y="72"
+                  x={58 + (cardWidth - 70) / 2}
+                  y={badgeY + 14}
                   fontSize="10"
                   fontWeight="600"
                   fontFamily="system-ui, sans-serif"
@@ -557,8 +625,8 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
             )}
 
             <circle
-              cx={node.width}
-              cy={node.height / 2}
+              cx={cardWidth}
+              cy={cardHeight / 2}
               r="6"
               fill={connectingFrom === node.id ? '#ef4444' : '#0284c7'}
               stroke="#ffffff"
@@ -566,6 +634,28 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
               style={{ cursor: 'pointer' }}
               onClick={(e) => handleConnectPortClick(e, node.id)}
             />
+            {isSelected && (
+              <g
+                transform={`translate(${cardWidth - 10}, ${cardHeight - 10})`}
+                onPointerDown={(e) => startNodeResize(e, node, cardWidth, cardHeight, 'both')}
+                style={{ cursor: 'nwse-resize' }}
+                aria-label="Resize node"
+              >
+                <title>Drag to resize node</title>
+                <rect width="18" height="18" rx="4" fill={isDark ? '#38bdf8' : '#0284c7'} stroke="#fff" strokeWidth="1.5" />
+                <path d="M 5 13 L 13 5 M 9 13 L 13 9" stroke="#fff" strokeWidth="1.5" />
+              </g>
+            )}
+            <g
+              transform={`translate(${cardWidth + 6 / scale}, ${cardHeight / 2 - 18 / scale}) scale(${1 / scale})`}
+              onPointerDown={(e) => startNodeResize(e, node, cardWidth, cardHeight, 'horizontal')}
+              style={{ cursor: 'ew-resize' }}
+              aria-label="Widen node"
+            >
+              <title>Drag to widen node</title>
+              <rect width="22" height="36" rx="6" fill={isDark ? '#38bdf8' : '#0284c7'} stroke="#fff" strokeWidth="1.5" />
+              <path d="M 5 12 L 11 7 L 17 12 M 5 24 L 11 29 L 17 24" fill="none" stroke="#fff" strokeWidth="2" />
+            </g>
           </g>
        );
         })}
@@ -625,13 +715,16 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
                 <label style={{ display: 'block', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>
                   Subtitle / Detail
                 </label>
-                <input
-                  type="text"
+                <textarea
+                rows={3}
                   value={editingNode.subtext || ''}
                   onChange={(e) => setEditingNode({ ...editingNode, subtext: e.target.value })}
                   style={{
                     width: '100%',
-                    padding: '8px 10px',
+                  minHeight: '72px',
+                  resize: 'vertical',
+                  fontFamily: 'inherit',
+                  padding: '8px 10px',
                     borderRadius: '6px',
                     border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
                     background: isDark ? '#0f172a' : '#f8fafc',
@@ -742,6 +835,49 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
         </div>
       )}
 
+      {editingConnector && (
+        <div
+          style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}
+          onClick={() => setEditingConnector(null)}
+        >
+          <div
+            style={{ background: isDark ? '#1e293b' : '#fff', color: isDark ? '#f8fafc' : '#0f172a', padding: 24, borderRadius: 12, width: 380, border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}` }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 style={{ margin: '0 0 16px' }}>Edit wire</h3>
+            <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Name</label>
+            <input
+              value={editingConnector.label || ''}
+              onChange={(e) => setEditingConnector({ ...editingConnector, label: e.target.value })}
+              style={{ width: '100%', boxSizing: 'border-box', padding: 8, marginBottom: 12, color: isDark ? '#f8fafc' : '#0f172a', background: isDark ? '#0f172a' : '#f8fafc', border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`, borderRadius: 6 }}
+            />
+            <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Line style</label>
+            <select
+              value={editingConnector.dashed ? 'dotted' : 'solid'}
+              onChange={(e) => setEditingConnector({ ...editingConnector, dashed: e.target.value === 'dotted' })}
+              style={{ width: '100%', padding: 8, marginBottom: 12, color: isDark ? '#f8fafc' : '#0f172a', background: isDark ? '#0f172a' : '#f8fafc', border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`, borderRadius: 6 }}
+            >
+              <option value="solid">Solid</option>
+              <option value="dotted">Dotted</option>
+            </select>
+            <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Color</label>
+            <input
+              type="color"
+              value={/^#[0-9a-f]{6}$/i.test(editingConnector.color) ? editingConnector.color : '#0284c7'}
+              onChange={(e) => setEditingConnector({ ...editingConnector, color: e.target.value })}
+              style={{ display: 'block', marginBottom: 20 }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <button onClick={() => { handleDeleteConnector(editingConnector.id); setEditingConnector(null); }} style={{ padding: '7px 12px', border: 0, borderRadius: 6, background: '#ef4444', color: '#fff', cursor: 'pointer' }}>Delete wire</button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => setEditingConnector(null)} style={{ padding: '7px 12px', border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`, borderRadius: 6, background: 'transparent', color: 'inherit', cursor: 'pointer' }}>Cancel</button>
+                <button onClick={() => { const next = connectors.map((item) => item.id === editingConnector.id ? editingConnector : item); setConnectors(next); notifyChange(nodes, next); setEditingConnector(null); }} style={{ padding: '7px 12px', border: 0, borderRadius: 6, background: '#0284c7', color: '#fff', cursor: 'pointer' }}>Save</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Universal Icon Picker Modal */}
       {pickerNodeId && (
         <IconPicker
@@ -764,3 +900,29 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
     </div>
   );
 };
+
+function wrapDescription(text: string, maxCharacters: number): string[] {
+  if (!text) return [];
+  const lines: string[] = [];
+  let line = '';
+  for (const word of text.split(/\s+/)) {
+    if (!line) {
+      line = word;
+    } else if (`${line} ${word}`.length <= maxCharacters) {
+      line += ` ${word}`;
+    } else {
+      lines.push(line);
+      line = word;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+function getCardSize(node: VisualStackNode) {
+  const width = Math.max(node.width, 190);
+  const descriptionLines = wrapDescription(node.subtext || '', Math.max(12, Math.floor((width - 70) / 7)));
+  const badgeY = 48 + descriptionLines.length * 14 + 2;
+  const height = Math.max(node.height, node.badge ? badgeY + 28 : badgeY + 8, 90);
+  return { width, height, badgeY, descriptionLines };
+}

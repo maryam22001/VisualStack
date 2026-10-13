@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, type ComponentType } from 'react';
 import * as IsoflowModule from 'isoflow';
+import type { Model } from 'isoflow';
 import { Architecture2D } from './views/Architecture2D';
 import { CleanArchitectureView } from './views/CleanArchitectureView';
 import {
@@ -8,7 +9,8 @@ import {
   exportProjectAsJSON,
   encodeProjectToHash,
   decodeProjectFromHash,
-  exportSvgToPng
+  exportSvgToPng,
+  serializeSvgForExport
 } from './utils/storage';
 import { useProjectHistory } from './hooks/useProjectHistory';
 import { convertProjectToIsoflowData } from './utils/isoflowAdapter';
@@ -17,6 +19,7 @@ import { useAuth } from './hooks/useAuth';
 import { useDesigns } from './hooks/useDesigns';
 import { errorMessage } from './api/client';
 import { AuthScreens, type AuthScreenType } from './pages/AuthScreens';
+import type { VisualStackProject } from './types/project';
 
 // Safely resolve Isoflow component export across Vite ESM/CJS boundaries
 const getIsoflowComponent = (): ComponentType<Record<string, unknown>> => {
@@ -30,6 +33,28 @@ const getIsoflowComponent = (): ComponentType<Record<string, unknown>> => {
 
 const IsoflowComponent = getIsoflowComponent();
 
+function synchronizeProjectViews(project: VisualStackProject): VisualStackProject {
+  const useCleanView = project.cleanView.nodes.length > 0;
+  const nodes = useCleanView ? project.cleanView.nodes : project.detailed2DView.nodes;
+  const connectors = useCleanView ? project.cleanView.connectors : project.detailed2DView.connectors;
+  return {
+    ...project,
+    cleanView: { ...project.cleanView, nodes, connectors },
+    detailed2DView: { nodes, connectors }
+  };
+}
+
+function getActiveDiagramSvg(tab: VisualStackProject['activeTab']): SVGElement | null {
+  if (tab === 'clean') return document.querySelector<SVGElement>('#aegisot-clean-svg');
+  if (tab === '2d') return document.querySelector<SVGElement>('#aegisot-2d-svg');
+  return Array.from(document.querySelectorAll<SVGElement>('main svg')).reduce<SVGElement | null>((largest, svg) => {
+    const bounds = svg.getBoundingClientRect();
+    if (!largest) return svg;
+    const largestBounds = largest.getBoundingClientRect();
+    return bounds.width * bounds.height > largestBounds.width * largestBounds.height ? svg : largest;
+  }, null);
+}
+
 export default function App() {
   // Auth comes from the server session (HTTP-only cookie, re-checked via GET /api/auth/me),
   // not from localStorage. See hooks/useAuth.tsx.
@@ -37,6 +62,10 @@ export default function App() {
   // Set by "Continue without an account" on the sign-in screen.
   // Delete this state (and the guest button in AuthScreens) to make login mandatory.
   const [guestMode, setGuestMode] = useState(false);
+
+  const [initialProject] = useState(() =>
+    synchronizeProjectViews(decodeProjectFromHash() || loadSavedProject())
+  );
 
   const {
     project,
@@ -46,7 +75,7 @@ export default function App() {
     redo,
     canUndo,
     canRedo
-  } = useProjectHistory(decodeProjectFromHash() || loadSavedProject());
+  } = useProjectHistory(initialProject);
 
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving'>('saved');
   const [theme, setTheme] = useState<'dark' | 'light'>('light');
@@ -157,46 +186,42 @@ export default function App() {
   };
 
   const handleExportPng = (copyToClipboard = false) => {
-    let selector = '#aegisot-clean-svg';
     let filename = `${project.title.toLowerCase().replace(/\s+/g, '-')}-clean.png`;
 
     if (project.activeTab === '2d') {
-      selector = '#aegisot-2d-svg';
       filename = `${project.title.toLowerCase().replace(/\s+/g, '-')}-2d.png`;
     } else if (project.activeTab === '3d') {
-      selector = 'svg';
       filename = `${project.title.toLowerCase().replace(/\s+/g, '-')}-3d.png`;
     }
 
-    const svgEl = document.querySelector(selector) as SVGElement | null;
+    const svgEl = getActiveDiagramSvg(project.activeTab);
     if (!svgEl) {
       alert('No SVG element detected for export.');
       return;
     }
 
-    exportSvgToPng(svgEl, filename, copyToClipboard);
+    void exportSvgToPng(svgEl, filename, copyToClipboard).catch((err: unknown) => {
+      console.error('PNG export failed:', err);
+      alert(err instanceof Error ? err.message : 'PNG export failed.');
+    });
   };
 
   const exportCurrentSvg = () => {
-    let selector = '#aegisot-clean-svg';
     let filename = `${project.title.toLowerCase().replace(/\s+/g, '-')}-clean.svg`;
 
     if (project.activeTab === '2d') {
-      selector = '#aegisot-2d-svg';
       filename = `${project.title.toLowerCase().replace(/\s+/g, '-')}-2d.svg`;
     } else if (project.activeTab === '3d') {
-      selector = 'svg';
       filename = `${project.title.toLowerCase().replace(/\s+/g, '-')}-3d.svg`;
     }
 
-    const svgEl = document.querySelector(selector) as SVGElement | null;
+    const svgEl = getActiveDiagramSvg(project.activeTab);
     if (!svgEl) {
       alert('No SVG element detected for export.');
       return;
     }
 
-    const serializer = new XMLSerializer();
-    const source = serializer.serializeToString(svgEl);
+    const source = serializeSvgForExport(svgEl);
     const blob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const downloadLink = document.createElement('a');
@@ -205,7 +230,57 @@ export default function App() {
     document.body.appendChild(downloadLink);
     downloadLink.click();
     document.body.removeChild(downloadLink);
-    URL.revokeObjectURL(url);
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const handleIsoflowModelUpdated = (model: Model) => {
+    const view = model.views[0];
+    if (!view) return;
+    const viewItems = new Map(view.items.map((item) => [item.id, item]));
+    const existingNodes = new Map(project.cleanView.nodes.map((node) => [node.id, node]));
+    const nodes = model.items.map((item) => {
+      const existing = existingNodes.get(item.id);
+      const position = viewItems.get(item.id)?.tile;
+      const iconUrl = model.icons.find((icon) => icon.id === item.icon)?.url;
+      return {
+        ...existing,
+        id: item.id,
+        label: item.name,
+        subtext: item.description,
+        iconUrl: item.icon && item.icon !== 'icon-server' ? iconUrl || existing?.iconUrl : existing?.iconUrl || iconUrl,
+        x: position ? position.x * 120 : existing?.x ?? 0,
+        y: position ? position.y * 120 : existing?.y ?? 0,
+        width: existing?.width ?? 190,
+        height: existing?.height ?? 90
+      };
+    });
+    const existingConnectors = new Map(project.cleanView.connectors.map((connector) => [connector.id, connector]));
+    const connectors = (view.connectors ?? []).flatMap((connector) => {
+      const from = connector.anchors[0]?.ref.item;
+      const to = connector.anchors[1]?.ref.item;
+      if (!from || !to) return [];
+      const existing = existingConnectors.get(connector.id);
+      return [{
+        id: connector.id,
+        from,
+        to,
+        label: connector.description ?? existing?.label,
+        color: model.colors.find((color) => color.id === connector.color)?.value ?? existing?.color ?? '#0284c7',
+        dashed: connector.style !== 'SOLID'
+      }];
+    });
+
+    updateProject((previous) => {
+      if (
+        JSON.stringify(previous.cleanView.nodes) === JSON.stringify(nodes) &&
+        JSON.stringify(previous.cleanView.connectors) === JSON.stringify(connectors)
+      ) return previous;
+      return {
+        ...previous,
+        cleanView: { ...previous.cleanView, nodes, connectors },
+        detailed2DView: { nodes, connectors }
+      };
+    });
   };
 
   const handleImportJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -216,8 +291,9 @@ export default function App() {
       try {
         const parsed = JSON.parse(event.target?.result as string);
         if (parsed.title && (parsed.cleanView || parsed.detailed2DView)) {
-          setProjectDirect(parsed);
-          saveProjectToStorage(parsed);
+          const synchronized = synchronizeProjectViews(parsed);
+          setProjectDirect(synchronized);
+          saveProjectToStorage(synchronized);
         } else {
           alert('Invalid VisualStack design file format.');
         }
@@ -572,7 +648,8 @@ export default function App() {
             onChange={(data) =>
               updateProject((prev) => ({
                 ...prev,
-                cleanView: data
+                cleanView: data,
+                detailed2DView: { nodes: data.nodes, connectors: data.connectors }
               }))
             }
           />
@@ -585,6 +662,7 @@ export default function App() {
             onChange={(data) =>
               updateProject((prev) => ({
                 ...prev,
+                cleanView: { ...prev.cleanView, nodes: data.nodes, connectors: data.connectors },
                 detailed2DView: data
               }))
             }
@@ -598,6 +676,7 @@ export default function App() {
               editorMode="EDITABLE"
               width="100%"
               height="100%"
+              onModelUpdated={handleIsoflowModelUpdated}
             />
           </div>
         )}
@@ -612,7 +691,7 @@ export default function App() {
         currentDesignId={currentDesignId}
         onClose={() => setIsGalleryOpen(false)}
         onSelectDesign={(d) => {
-          setProjectDirect(d.project);
+          setProjectDirect(synchronizeProjectViews(d.project));
           setCurrentDesignId(d.id);
           setIsGalleryOpen(false);
         }}
