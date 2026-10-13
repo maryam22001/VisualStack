@@ -3,7 +3,7 @@ import { IconPicker } from '../components/IconPicker';
 import { NodeEditModal } from '../components/NodeEditModal';
 import type { IconResult } from '../utils/IconLibrary';
 import type { VisualStackNode, VisualStackConnector } from '../types/project';
-import { getOrthogonalPathMidpoint, snapToGrid } from '../utils/geometry';
+import { getDefaultConnectorBend, getQuadraticConnectorPath, snapToGrid } from '../utils/geometry';
 export interface Architecture2DProps {
   theme?: 'dark' | 'light';
   onToggleTheme?: () => void;
@@ -105,6 +105,7 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
   const [draggedNode, setDraggedNode] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null);
   const resizeNodesRef = useRef(nodes);
   const resizeCleanupRef = useRef<(() => void) | null>(null);
+  const bendCleanupRef = useRef<(() => void) | null>(null);
 
   // Connection Wire tool
   const [connectingFrom, setConnectingFrom] = useState<string | null>(null);
@@ -113,6 +114,7 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
   // Modals & Pickers
   const [editingNode, setEditingNode] = useState<VisualStackNode | null>(null);
   const [editingConnector, setEditingConnector] = useState<VisualStackConnector | null>(null);
+  const [selectedConnectorId, setSelectedConnectorId] = useState<string | null>(null);
   const [pickerNodeId, setPickerNodeId] = useState<string | null>(null);
   const updateEditingNodeIconRef = useRef<((iconUrl: string) => void) | null>(null);
   const connectorIdRef = useRef(0);
@@ -164,7 +166,7 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
 
   
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (draggedNode || resizeCleanupRef.current || editingNode || connectingFrom) return;
+    if (draggedNode || resizeCleanupRef.current || bendCleanupRef.current || editingNode || connectingFrom) return;
     setIsPanning(true);
     setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
   };
@@ -204,7 +206,56 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
     setDraggedNode(null);
   };
 
-  useEffect(() => () => resizeCleanupRef.current?.(), []);
+  useEffect(() => () => {
+    resizeCleanupRef.current?.();
+    bendCleanupRef.current?.();
+  }, []);
+
+  const startConnectorBendDrag = (
+    e: React.PointerEvent<SVGCircleElement>,
+    connector: VisualStackConnector,
+    bend: { x: number; y: number }
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    bendCleanupRef.current?.();
+    setSelectedConnectorId(connector.id);
+    setSelectedNodeId(null);
+    setIsPanning(false);
+    setDraggedNode(null);
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const pointerId = e.pointerId;
+    let latestConnectors = connectors;
+    const onPointerMove = (event: PointerEvent) => {
+      if (event.pointerId !== pointerId) return;
+      const nextBend = {
+        x: bend.x + (event.clientX - startX) / scale,
+        y: bend.y + (event.clientY - startY) / scale
+      };
+      latestConnectors = connectors.map((item) =>
+        item.id === connector.id ? { ...item, bend: nextBend } : item
+      );
+      setConnectors(latestConnectors);
+    };
+    const finishBend = (event: PointerEvent) => {
+      if (event.pointerId !== pointerId) return;
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', finishBend);
+      window.removeEventListener('pointercancel', finishBend);
+      bendCleanupRef.current = null;
+      notifyChange(nodes, latestConnectors);
+    };
+    bendCleanupRef.current = () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', finishBend);
+      window.removeEventListener('pointercancel', finishBend);
+    };
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', finishBend);
+    window.addEventListener('pointercancel', finishBend);
+  };
 
   const startNodeResize = (
     e: React.PointerEvent<SVGGElement>,
@@ -226,7 +277,7 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
     const pointerId = e.pointerId;
     const onPointerMove = (event: PointerEvent) => {
       if (event.pointerId !== pointerId) return;
-      const nextWidth = Math.min(800, Math.max(190, width + (event.clientX - startX) / scale));
+      const nextWidth = Math.min(800, Math.max(220, width + (event.clientX - startX) / scale));
       const nextHeight = axis === 'both'
         ? Math.min(600, Math.max(90, height + (event.clientY - startY) / scale))
         : height;
@@ -267,13 +318,14 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
       id,
       label: 'New Microservice',
       subtext: 'Custom Component',
-      badge: 'TCP / RPC',
+      category: 'PLATFORM / INGEST',
+      badge: 'Service',
       iconUrl: 'https://api.iconify.design/lucide/box.svg',
       color: '#0284c7',
       x: 350,
       y: 200,
-      width: 190,
-      height: 90
+      width: 240,
+      height: 112
     };
     const nextNodes = [...nodes, newNode];
     setNodes(nextNodes);
@@ -287,10 +339,14 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
       setConnectingFrom(nodeId);
     } else {
       if (connectingFrom !== nodeId) {
+        let id = `conn-${connectorIdRef.current++}`;
+        while (connectors.some((connector) => connector.id === id)) {
+          id = `conn-${connectorIdRef.current++}`;
+        }
         const nextConnectors = [
           ...connectors,
           {
-            id: `conn-${connectorIdRef.current++}`,
+            id,
             from: connectingFrom,
             to: nodeId,
             label: 'Data Sync',
@@ -299,6 +355,7 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
         ];
         setConnectors(nextConnectors);
         notifyChange(nodes, nextConnectors);
+        setSelectedConnectorId(id);
       }
       setConnectingFrom(null);
     }
@@ -338,7 +395,7 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
     >
       {/* Action Bar */}
       <div
-        title="Double-click a node to edit it. Drag its blue handles to resize. Double-click a wire to add or edit its label."
+        title="Double-click a card to edit it. Drag cards to arrange them and use their handles to resize. Click a wire to select it, then drag its blue dot to bend it."
         style={{
           position: 'absolute',
           top: 16,
@@ -368,8 +425,8 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
         >
           + Add Architecture Node
         </button>
-        <span style={{ alignSelf: 'center', maxWidth: 260, fontSize: 11, color: isDark ? '#94a3b8' : '#64748b' }}>
-          Double-click a wire to add or edit its label
+        <span style={{ alignSelf: 'center', fontSize: 10.5, whiteSpace: 'nowrap', color: isDark ? '#94a3b8' : '#64748b' }}>
+          Click a wire; drag its dot to bend · double-click it to edit its label
         </span>
 
         {connectingFrom && (
@@ -444,6 +501,7 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
       {/* SVG Canvas */}
       <svg
         id="aegisot-2d-svg"
+        onClick={() => setSelectedConnectorId(null)}
         style={{
           width: '100%',
           height: '100%',
@@ -469,13 +527,13 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
         </defs>
 
         {/* Connectors */}
-        {connectors.map((conn) => {
+        {connectors.map((conn, index) => {
           const from = getNodeCenter(conn.from);
           const to = getNodeCenter(conn.to);
-          const midX = (from.x + to.x) / 2;
-          const labelPoint = getOrthogonalPathMidpoint(from, to);
+          const bend = conn.bend ?? getDefaultConnectorBend(from, to, index);
+          const labelPoint = bend;
           const labelWidth = Math.min(280, Math.max(48, (conn.label?.length ?? 0) * 6.4 + 16));
-          const pathD = `M ${from.x} ${from.y} L ${midX} ${from.y} L ${midX} ${to.y} L ${to.x} ${to.y}`;
+          const pathD = getQuadraticConnectorPath(from, to, bend);
 
           const markerId = `wire-arrow-${conn.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
 
@@ -485,6 +543,11 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
               onDoubleClick={(e) => {
                 e.stopPropagation();
                 setEditingConnector(conn);
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedConnectorId(conn.id);
+                setSelectedNodeId(null);
               }}
               style={{ cursor: 'pointer' }}
             >
@@ -534,6 +597,30 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
                   </text>
                 </g>
               )}
+              {selectedConnectorId === conn.id && (
+                <g>
+                  <circle
+                    cx={bend.x}
+                    cy={bend.y}
+                    r="10"
+                    fill="transparent"
+                    pointerEvents="all"
+                    onPointerDown={(e) => startConnectorBendDrag(e, conn, bend)}
+                    style={{ cursor: 'grab' }}
+                  >
+                    <title>Drag to bend this wire</title>
+                  </circle>
+                  <circle
+                    cx={bend.x}
+                    cy={bend.y}
+                    r="5"
+                    fill={conn.color}
+                    stroke="#ffffff"
+                    strokeWidth="2"
+                    pointerEvents="none"
+                  />
+                </g>
+              )}
             </g>
           );
         })}
@@ -554,8 +641,15 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
         {/* Nodes */}
         {nodes.map((node) => {
           const isSelected = selectedNodeId === node.id;
-          const { width: cardWidth, height: cardHeight, badgeY, descriptionLines, specsY } = getCardSize(node);
-          const specs = node.specs ?? [];
+          const {
+            width: cardWidth,
+            height: cardHeight,
+            badgeWidth,
+            categoryWidth,
+            titleLines,
+            descriptionLines,
+            specs
+          } = getCardSize(node);
           return (
             <g
               key={node.id}
@@ -563,6 +657,7 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
               onClick={(e) => {
                 e.stopPropagation();
                 setSelectedNodeId(node.id);
+                setSelectedConnectorId(null);
               }}
               onMouseDown={(e) => {
                 e.stopPropagation();
@@ -580,92 +675,97 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
               <rect
                 width={cardWidth}
                 height={cardHeight}
-                rx="10"
+                rx="9"
                 fill={isDark ? '#1e293b' : '#ffffff'}
                 stroke={isSelected ? '#f43f5e' : (node.color || '#0284c7')}
-                strokeWidth={isSelected ? '3' : '2'}
+                strokeWidth={isSelected ? '2.5' : '1.5'}
+                style={{ filter: 'drop-shadow(0 2px 4px rgba(15, 23, 42, 0.14))' }}
               />
-            <rect width="6" height={cardHeight} rx="3" fill={node.color || '#0284c7'} />
-
-            {node.iconUrl && node.iconUrl.trim() !== '' ? (
-  <image
-    href={node.iconUrl}
-    x="16"
-    y="18"
-    width="34"
-    height="34"
-    preserveAspectRatio="xMidYMid meet"
-    onError={(e) => {
-      (e.currentTarget as SVGImageElement).style.display = 'none';
-    }}
-  />
-) : (
-  <g>
-    <circle cx="33" cy="35" r="16" fill={node.color || '#0284c7'} opacity={0.15} />
-    <text
-      x="33"
-      y="40"
-      fontSize="13"
-      textAnchor="middle"
-      fill={node.color || '#0284c7'}
-      fontWeight="bold"
-    >
-      {node.label ? node.label.charAt(0).toUpperCase() : '●'}
-    </text>
-  </g>
-)}
-
-            <text
-              x="58"
-              y="32"
-              fontSize="14"
-              fontWeight="700"
-              fontFamily="system-ui, sans-serif"
-              fill={isDark ? '#f8fafc' : '#0f172a'}
-            >
-              {node.label}
-            </text>
-            <text
-              x="58"
-              y="48"
-              fontSize="11"
-              fontFamily="system-ui, sans-serif"
-              fill={isDark ? '#94a3b8' : '#64748b'}
-            >
-              {descriptionLines.map((line, index) => (
-                <tspan key={index} x="58" dy={index === 0 ? 0 : 14}>{line}</tspan>
-              ))}
-            </text>
-
-            {node.badge && (
-              <>
-                <rect x="58" y={badgeY} width={cardWidth - 70} height="20" rx="4" fill={isDark ? '#0f172a' : '#f1f5f9'} />
-                <text
-                  x={58 + (cardWidth - 70) / 2}
-                  y={badgeY + 14}
-                  fontSize="10"
-                  fontWeight="600"
-                  fontFamily="system-ui, sans-serif"
-                  fill={node.color || '#0284c7'}
-                  textAnchor="middle"
-                >
-                  {node.badge}
-                </text>
-              </>
-            )}
-
-            {specs.map((spec, index) => (
               <text
-                key={`${spec}-${index}`}
-                x="58"
-                y={specsY + index * 16}
+                x="14"
+                y="19"
+                fontSize="9.5"
+                fontWeight="700"
+                fontFamily="system-ui, sans-serif"
+                fill={isDark ? '#94a3b8' : '#64748b'}
+                letterSpacing="0.25"
+                textLength={((node.category || 'COMPONENT').length * 5.7 > categoryWidth)
+                  ? categoryWidth
+                  : undefined}
+                lengthAdjust="spacingAndGlyphs"
+              >
+                {(node.category || 'COMPONENT').toUpperCase()}
+              </text>
+
+              {node.badge && (
+                <>
+                  <rect
+                    x={cardWidth - badgeWidth - 12}
+                    y="8"
+                    width={badgeWidth}
+                    height="18"
+                    rx="4"
+                    fill={isDark ? '#0f172a' : '#f1f5f9'}
+                    stroke={isDark ? '#334155' : '#cbd5e1'}
+                  />
+                  <text
+                    x={cardWidth - badgeWidth / 2 - 12}
+                    y="20"
+                    fontSize="9.5"
+                    fontWeight="600"
+                    fontFamily="system-ui, sans-serif"
+                    fill={node.color || '#0284c7'}
+                    textAnchor="middle"
+                    textLength={node.badge.length * 5.7 > badgeWidth - 12
+                      ? Math.max(12, badgeWidth - 12)
+                      : undefined}
+                    lengthAdjust="spacingAndGlyphs"
+                  >
+                    {node.badge}
+                  </text>
+                </>
+              )}
+
+              <text
+                x="14"
+                y="48"
+                fontSize="13.5"
+                fontWeight="700"
+                fontFamily="system-ui, sans-serif"
+                fill={isDark ? '#f8fafc' : '#0f172a'}
+              >
+                {titleLines.map((line, index) => (
+                  <tspan key={index} x="14" dy={index === 0 ? 0 : 16}>{line}</tspan>
+                ))}
+              </text>
+              <text
+                x="14"
+                y={48 + titleLines.length * 16 + 4}
                 fontSize="10.5"
                 fontFamily="system-ui, sans-serif"
-                fill={node.color || '#0284c7'}
+                fill={isDark ? '#94a3b8' : '#64748b'}
               >
-                {spec}
+                {descriptionLines.map((line, index) => (
+                  <tspan key={index} x="14" dy={index === 0 ? 0 : 14}>{line}</tspan>
+                ))}
               </text>
-            ))}
+
+              {specs.map((spec, index) => {
+                const specY = 48 + titleLines.length * 16 + 4 + descriptionLines.length * 14 + 9
+                  + specs.slice(0, index).reduce((total, lines) => total + lines.length, 0) * 14;
+                return spec.map((line, lineIndex) => (
+                  <text
+                    key={`${node.id}-spec-${index}-${lineIndex}`}
+                    x="14"
+                    y={specY + lineIndex * 14}
+                    fontSize="10"
+                    fontFamily="system-ui, sans-serif"
+                    fill={node.color || '#0284c7'}
+                  >
+                    {lineIndex === 0 ? '• ' : '  '}{line}
+                  </text>
+                ));
+              })}
 
             <circle
               cx={cardWidth}
@@ -814,11 +914,20 @@ function wrapDescription(text: string, maxCharacters: number): string[] {
 }
 
 function getCardSize(node: VisualStackNode) {
-  const width = Math.max(node.width, 190);
-  const descriptionLines = wrapDescription(node.subtext || '', Math.max(12, Math.floor((width - 70) / 7)));
-  const badgeY = 48 + descriptionLines.length * 14 + 2;
-  const specsY = node.badge ? badgeY + 28 : badgeY + 8;
-  const specs = node.specs ?? [];
-  const height = Math.max(node.height, specs.length ? specsY + specs.length * 16 + 6 : specsY + 8, 90);
-  return { width, height, badgeY, descriptionLines, specsY };
+  const width = Math.max(node.width, 220);
+  const maxCharacters = Math.max(16, Math.floor((width - 28) / 6.5));
+  const titleLines = wrapDescription(node.label || 'Untitled component', maxCharacters);
+  const descriptionLines = wrapDescription(node.subtext || '', maxCharacters);
+  const specs = (node.specs ?? []).map((spec) => wrapDescription(spec, maxCharacters - 2));
+  const badgeWidth = node.badge
+    ? Math.min(width * 0.48, Math.max(52, node.badge.length * 5.7 + 16))
+    : 0;
+  const categoryWidth = Math.max(24, width - 32 - (node.badge ? badgeWidth + 12 : 0));
+  const contentBottom = 48
+    + titleLines.length * 16
+    + 4
+    + descriptionLines.length * 14
+    + (specs.length ? 9 + specs.reduce((total, lines) => total + lines.length, 0) * 14 : 0);
+  const height = Math.max(node.height, contentBottom + 30, 112);
+  return { width, height, badgeWidth, categoryWidth, titleLines, descriptionLines, specs };
 }

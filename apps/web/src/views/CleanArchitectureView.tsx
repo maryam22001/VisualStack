@@ -3,7 +3,7 @@ import { IconPicker } from '../components/IconPicker';
 import { ColorPicker, NodeEditModal } from '../components/NodeEditModal';
 import type { IconResult } from '../utils/IconLibrary';
 import type { VisualStackCluster, VisualStackNode, VisualStackConnector } from '../types/project';
-import { getOrthogonalPathMidpoint, snapToGrid } from '../utils/geometry';
+import { getDefaultConnectorBend, getQuadraticConnectorPath, snapToGrid } from '../utils/geometry';
 
 export interface CleanArchitectureProps {
   theme?: 'dark' | 'light';
@@ -246,6 +246,7 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
   // Dragging Nodes / Clusters
   const [draggedNode, setDraggedNode] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null);
   const [draggedCluster, setDraggedCluster] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null);
+  const bendCleanupRef = useRef<(() => void) | null>(null);
 
   // Connection Wire tool
   const [connectingFrom, setConnectingFrom] = useState<string | null>(null);
@@ -319,7 +320,7 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (draggedNode || draggedCluster || editingNode || editingCluster || connectingFrom) return;
+    if (draggedNode || draggedCluster || bendCleanupRef.current || editingNode || editingCluster || connectingFrom) return;
     if (
       e.target === containerRef.current ||
       (e.target as HTMLElement).tagName === 'svg' ||
@@ -376,6 +377,54 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
     setIsPanning(false);
     setDraggedNode(null);
     setDraggedCluster(null);
+  };
+
+  useEffect(() => () => bendCleanupRef.current?.(), []);
+
+  const startConnectorBendDrag = (
+    e: React.PointerEvent<SVGCircleElement>,
+    connector: VisualStackConnector,
+    bend: { x: number; y: number }
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    bendCleanupRef.current?.();
+    setSelectedId(connector.id);
+    setIsPanning(false);
+    setDraggedNode(null);
+    setDraggedCluster(null);
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const pointerId = e.pointerId;
+    let latestConnectors = connectors;
+    const onPointerMove = (event: PointerEvent) => {
+      if (event.pointerId !== pointerId) return;
+      const nextBend = {
+        x: bend.x + (event.clientX - startX) / scale,
+        y: bend.y + (event.clientY - startY) / scale
+      };
+      latestConnectors = connectors.map((item) =>
+        item.id === connector.id ? { ...item, bend: nextBend } : item
+      );
+      setConnectors(latestConnectors);
+    };
+    const finishBend = (event: PointerEvent) => {
+      if (event.pointerId !== pointerId) return;
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', finishBend);
+      window.removeEventListener('pointercancel', finishBend);
+      bendCleanupRef.current = null;
+      notifyChange(clusters, nodes, latestConnectors);
+    };
+    bendCleanupRef.current = () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', finishBend);
+      window.removeEventListener('pointercancel', finishBend);
+    };
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', finishBend);
+    window.addEventListener('pointercancel', finishBend);
   };
 
   const getNodeCenter = (id: string) => {
@@ -436,6 +485,7 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
         };
         const nextConnectors = [...connectors, newConnector];
         setConnectors(nextConnectors);
+        setSelectedId(newConnectorId);
       }
       setConnectingFrom(null);
     }
@@ -482,7 +532,7 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
     >
       {/* Top Floating Control Bar */}
       <div
-        title="Double-click a wire to add or edit its label."
+        title="Select a wire and drag its blue bend point. Double-click a wire to edit its label."
         style={{
           position: 'absolute',
           top: 16,
@@ -528,6 +578,9 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
         >
           + Add Service Node
         </button>
+        <span style={{ alignSelf: 'center', fontSize: 10.5, whiteSpace: 'nowrap', color: isDark ? '#94a3b8' : '#64748b' }}>
+          Select a wire and drag its point to bend it
+        </span>
 
         {connectingFrom && (
           <button
@@ -713,14 +766,14 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
         })}
 
         {/* 2. Orthogonal Connectors */}
-        {connectors.map((line) => {
+        {connectors.map((line, index) => {
           const isSelected = selectedId === line.id;
           const from = getNodeCenter(line.from);
           const to = getNodeCenter(line.to);
-          const midX = (from.x + to.x) / 2;
-          const labelPoint = getOrthogonalPathMidpoint(from, to);
+          const bend = line.bend ?? getDefaultConnectorBend(from, to, index);
+          const labelPoint = bend;
           const labelWidth = Math.min(280, Math.max(48, (line.label?.length ?? 0) * 6.4 + 16));
-          const pathD = `M ${from.x} ${from.y} L ${midX} ${from.y} L ${midX} ${to.y} L ${to.x} ${to.y}`;
+          const pathD = getQuadraticConnectorPath(from, to, bend);
 
           const markerId = `clean-wire-arrow-${line.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
           const markerColor = isSelected ? '#f43f5e' : line.color;
@@ -782,6 +835,30 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
                   >
                     {line.label}
                   </text>
+                </g>
+              )}
+              {isSelected && (
+                <g>
+                  <circle
+                    cx={bend.x}
+                    cy={bend.y}
+                    r="10"
+                    fill="transparent"
+                    pointerEvents="all"
+                    onPointerDown={(e) => startConnectorBendDrag(e, line, bend)}
+                    style={{ cursor: 'grab' }}
+                  >
+                    <title>Drag to bend this wire</title>
+                  </circle>
+                  <circle
+                    cx={bend.x}
+                    cy={bend.y}
+                    r="5"
+                    fill={line.color}
+                    stroke="#ffffff"
+                    strokeWidth="2"
+                    pointerEvents="none"
+                  />
                 </g>
               )}
             </g>

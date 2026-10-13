@@ -3,6 +3,7 @@ export interface VisualStackNode {
   clusterId?: string;
   label: string;
   subtext?: string;
+  category?: string;
   badge?: string;
   iconUrl?: string;
   color?: string;
@@ -29,6 +30,7 @@ export interface VisualStackConnector {
   from: string;
   to: string;
   label?: string;
+  bend?: { x: number; y: number };
   color: string;
   dashed?: boolean;
 }

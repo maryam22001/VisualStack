@@ -196,12 +196,25 @@ export const NodeEditModal: React.FC<NodeEditModalProps> = ({
           </div>
 
           <div>
-            <label htmlFor="node-badge" style={labelStyle}>Layer / Category</label>
+            <label htmlFor="node-category" style={labelStyle}>Category / Layer</label>
+            <input
+              id="node-category"
+              type="text"
+              value={draft.category || ''}
+              onChange={(e) => setDraft({ ...draft, category: e.target.value })}
+              placeholder="e.g. PLATFORM / INGEST"
+              style={inputStyle}
+            />
+          </div>
+
+          <div>
+            <label htmlFor="node-badge" style={labelStyle}>Role Badge</label>
             <input
               id="node-badge"
               type="text"
               value={draft.badge || ''}
               onChange={(e) => setDraft({ ...draft, badge: e.target.value })}
+              placeholder="e.g. Broker"
               style={inputStyle}
             />
           </div>
