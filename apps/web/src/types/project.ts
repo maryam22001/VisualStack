@@ -6,6 +6,7 @@ export interface VisualStackNode {
   badge?: string;
   iconUrl?: string;
   color?: string;
+  specs?: string[];
   x: number;
   y: number;
   width: number;
