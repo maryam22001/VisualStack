@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { IconPicker } from '../components/IconPicker';
+import { NodeEditModal } from '../components/NodeEditModal';
 import type { IconResult } from '../utils/IconLibrary';
 import type { VisualStackNode, VisualStackConnector } from '../types/project';
 import { snapToGrid } from '../utils/geometry';
@@ -113,6 +114,7 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
   const [editingNode, setEditingNode] = useState<VisualStackNode | null>(null);
   const [editingConnector, setEditingConnector] = useState<VisualStackConnector | null>(null);
   const [pickerNodeId, setPickerNodeId] = useState<string | null>(null);
+  const updateEditingNodeIconRef = useRef<((iconUrl: string) => void) | null>(null);
   const connectorIdRef = useRef(0);
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -525,7 +527,8 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
         {/* Nodes */}
         {nodes.map((node) => {
           const isSelected = selectedNodeId === node.id;
-          const { width: cardWidth, height: cardHeight, badgeY, descriptionLines } = getCardSize(node);
+          const { width: cardWidth, height: cardHeight, badgeY, descriptionLines, specsY } = getCardSize(node);
+          const specs = node.specs ?? [];
           return (
             <g
               key={node.id}
@@ -624,6 +627,19 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
               </>
             )}
 
+            {specs.map((spec, index) => (
+              <text
+                key={`${spec}-${index}`}
+                x="58"
+                y={specsY + index * 16}
+                fontSize="10.5"
+                fontFamily="system-ui, sans-serif"
+                fill={node.color || '#0284c7'}
+              >
+                {spec}
+              </text>
+            ))}
+
             <circle
               cx={cardWidth}
               cy={cardHeight / 2}
@@ -663,176 +679,24 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
 
       {/* Edit Node Modal */}
       {editingNode && (
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            background: 'rgba(0,0,0,0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 100
+        <NodeEditModal
+          key={editingNode.id}
+          node={editingNode}
+          theme={theme}
+          onCancel={() => setEditingNode(null)}
+          onDelete={handleDeleteNode}
+          onPickIcon={(draft, updateIcon) => {
+            setEditingNode(draft);
+            updateEditingNodeIconRef.current = updateIcon;
+            setPickerNodeId(draft.id);
           }}
-          onClick={() => setEditingNode(null)}
-        >
-          <div
-            style={{
-              background: isDark ? '#1e293b' : '#ffffff',
-              color: isDark ? '#f8fafc' : '#0f172a',
-              padding: '24px',
-              borderRadius: '12px',
-              width: '420px',
-              border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
-              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.3)'
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 style={{ margin: '0 0 16px 0', fontSize: '17px', fontWeight: 'bold' }}>
-              Edit Node: {editingNode.label}
-            </h3>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>
-                  Node Title
-                </label>
-                <input
-                  type="text"
-                  value={editingNode.label}
-                  onChange={(e) => setEditingNode({ ...editingNode, label: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '8px 10px',
-                    borderRadius: '6px',
-                    border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
-                    background: isDark ? '#0f172a' : '#f8fafc',
-                    color: isDark ? '#f8fafc' : '#0f172a'
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>
-                  Subtitle / Detail
-                </label>
-                <textarea
-                rows={3}
-                  value={editingNode.subtext || ''}
-                  onChange={(e) => setEditingNode({ ...editingNode, subtext: e.target.value })}
-                  style={{
-                    width: '100%',
-                  minHeight: '72px',
-                  resize: 'vertical',
-                  fontFamily: 'inherit',
-                  padding: '8px 10px',
-                    borderRadius: '6px',
-                    border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
-                    background: isDark ? '#0f172a' : '#f8fafc',
-                    color: isDark ? '#f8fafc' : '#0f172a'
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>
-                  Protocol / Badge
-                </label>
-                <input
-                  type="text"
-                  value={editingNode.badge || ''}
-                  onChange={(e) => setEditingNode({ ...editingNode, badge: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '8px 10px',
-                    borderRadius: '6px',
-                    border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
-                    background: isDark ? '#0f172a' : '#f8fafc',
-                    color: isDark ? '#f8fafc' : '#0f172a'
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>
-                  Component Tool Icon
-                </label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  {editingNode.iconUrl && (
-                    <img src={editingNode.iconUrl} alt="icon preview" style={{ width: 28, height: 28 }} />
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setPickerNodeId(editingNode.id)}
-                    style={{
-                      padding: '6px 12px',
-                      background: '#0284c7',
-                      color: '#fff',
-                      border: 'none',
-                      borderRadius: '6px',
-                      cursor: 'pointer',
-                      fontSize: '12px',
-                      fontWeight: '600'
-                    }}
-                  >
-                    🔍 Change Tool Icon (200k+)
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '22px' }}>
-              <button
-                onClick={() => handleDeleteNode(editingNode.id)}
-                style={{
-                  padding: '7px 14px',
-                  borderRadius: '6px',
-                  border: 'none',
-                  background: '#ef4444',
-                  color: '#fff',
-                  cursor: 'pointer',
-                  fontSize: '12px'
-                }}
-              >
-                Delete Node
-              </button>
-
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button
-                  onClick={() => setEditingNode(null)}
-                  style={{
-                    padding: '7px 14px',
-                    borderRadius: '6px',
-                    border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
-                    background: 'transparent',
-                    color: isDark ? '#cbd5e1' : '#475569',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => {
-                    const nextNodes = nodes.map((n) => (n.id === editingNode.id ? editingNode : n));
-                    setNodes(nextNodes);
-                    setEditingNode(null);
-                    notifyChange(nextNodes, connectors);
-                  }}
-                  style={{
-                    padding: '7px 16px',
-                    borderRadius: '6px',
-                    border: 'none',
-                    background: '#0284c7',
-                    color: '#fff',
-                    fontWeight: 'bold',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Save Changes
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+          onApply={(updated) => {
+            const nextNodes = nodes.map((node) => node.id === updated.id ? updated : node);
+            setNodes(nextNodes);
+            setEditingNode(null);
+            notifyChange(nextNodes, connectors);
+          }}
+        />
       )}
 
       {editingConnector && (
@@ -892,6 +756,8 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
             if (editingNode && editingNode.id === pickerNodeId) {
               setEditingNode({ ...editingNode, iconUrl: icon.url });
             }
+            updateEditingNodeIconRef.current?.(icon.url);
+            updateEditingNodeIconRef.current = null;
             notifyChange(nextNodes, connectors);
             setPickerNodeId(null);
           }}
@@ -923,6 +789,8 @@ function getCardSize(node: VisualStackNode) {
   const width = Math.max(node.width, 190);
   const descriptionLines = wrapDescription(node.subtext || '', Math.max(12, Math.floor((width - 70) / 7)));
   const badgeY = 48 + descriptionLines.length * 14 + 2;
-  const height = Math.max(node.height, node.badge ? badgeY + 28 : badgeY + 8, 90);
-  return { width, height, badgeY, descriptionLines };
+  const specsY = node.badge ? badgeY + 28 : badgeY + 8;
+  const specs = node.specs ?? [];
+  const height = Math.max(node.height, specs.length ? specsY + specs.length * 16 + 6 : specsY + 8, 90);
+  return { width, height, badgeY, descriptionLines, specsY };
 }
