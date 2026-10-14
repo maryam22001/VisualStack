@@ -265,6 +265,7 @@ export default function App() {
         from,
         to,
         label: connector.description ?? existing?.label,
+        bend: existing?.bend,
         color: model.colors.find((color) => color.id === connector.color)?.value ?? existing?.color ?? '#0284c7',
         dashed: connector.style !== 'SOLID'
       }];

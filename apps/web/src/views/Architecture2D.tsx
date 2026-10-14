@@ -3,7 +3,7 @@ import { IconPicker } from '../components/IconPicker';
 import { NodeEditModal } from '../components/NodeEditModal';
 import type { IconResult } from '../utils/IconLibrary';
 import type { VisualStackNode, VisualStackConnector } from '../types/project';
-import { getOrthogonalPathMidpoint, snapToGrid } from '../utils/geometry';
+import { getDefaultConnectorBend, getQuadraticConnectorPath, snapToGrid } from '../utils/geometry';
 export interface Architecture2DProps {
   theme?: 'dark' | 'light';
   onToggleTheme?: () => void;
@@ -105,6 +105,7 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
   const [draggedNode, setDraggedNode] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null);
   const resizeNodesRef = useRef(nodes);
   const resizeCleanupRef = useRef<(() => void) | null>(null);
+  const bendCleanupRef = useRef<(() => void) | null>(null);
 
   // Connection Wire tool
   const [connectingFrom, setConnectingFrom] = useState<string | null>(null);
@@ -113,6 +114,7 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
   // Modals & Pickers
   const [editingNode, setEditingNode] = useState<VisualStackNode | null>(null);
   const [editingConnector, setEditingConnector] = useState<VisualStackConnector | null>(null);
+  const [selectedConnectorId, setSelectedConnectorId] = useState<string | null>(null);
   const [pickerNodeId, setPickerNodeId] = useState<string | null>(null);
   const updateEditingNodeIconRef = useRef<((iconUrl: string) => void) | null>(null);
   const connectorIdRef = useRef(0);
@@ -164,7 +166,7 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
 
   
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (draggedNode || resizeCleanupRef.current || editingNode || connectingFrom) return;
+    if (draggedNode || resizeCleanupRef.current || bendCleanupRef.current || editingNode || connectingFrom) return;
     setIsPanning(true);
     setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
   };
@@ -204,7 +206,56 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
     setDraggedNode(null);
   };
 
-  useEffect(() => () => resizeCleanupRef.current?.(), []);
+  useEffect(() => () => {
+    resizeCleanupRef.current?.();
+    bendCleanupRef.current?.();
+  }, []);
+
+  const startConnectorBendDrag = (
+    e: React.PointerEvent<SVGCircleElement>,
+    connector: VisualStackConnector,
+    bend: { x: number; y: number }
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    bendCleanupRef.current?.();
+    setSelectedConnectorId(connector.id);
+    setSelectedNodeId(null);
+    setIsPanning(false);
+    setDraggedNode(null);
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const pointerId = e.pointerId;
+    let latestConnectors = connectors;
+    const onPointerMove = (event: PointerEvent) => {
+      if (event.pointerId !== pointerId) return;
+      const nextBend = {
+        x: bend.x + (event.clientX - startX) / scale,
+        y: bend.y + (event.clientY - startY) / scale
+      };
+      latestConnectors = connectors.map((item) =>
+        item.id === connector.id ? { ...item, bend: nextBend } : item
+      );
+      setConnectors(latestConnectors);
+    };
+    const finishBend = (event: PointerEvent) => {
+      if (event.pointerId !== pointerId) return;
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', finishBend);
+      window.removeEventListener('pointercancel', finishBend);
+      bendCleanupRef.current = null;
+      notifyChange(nodes, latestConnectors);
+    };
+    bendCleanupRef.current = () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', finishBend);
+      window.removeEventListener('pointercancel', finishBend);
+    };
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', finishBend);
+    window.addEventListener('pointercancel', finishBend);
+  };
 
   const startNodeResize = (
     e: React.PointerEvent<SVGGElement>,
@@ -287,10 +338,14 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
       setConnectingFrom(nodeId);
     } else {
       if (connectingFrom !== nodeId) {
+        let id = `conn-${connectorIdRef.current++}`;
+        while (connectors.some((connector) => connector.id === id)) {
+          id = `conn-${connectorIdRef.current++}`;
+        }
         const nextConnectors = [
           ...connectors,
           {
-            id: `conn-${connectorIdRef.current++}`,
+            id,
             from: connectingFrom,
             to: nodeId,
             label: 'Data Sync',
@@ -299,6 +354,7 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
         ];
         setConnectors(nextConnectors);
         notifyChange(nodes, nextConnectors);
+        setSelectedConnectorId(id);
       }
       setConnectingFrom(null);
     }
@@ -444,6 +500,7 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
       {/* SVG Canvas */}
       <svg
         id="aegisot-2d-svg"
+        onClick={() => setSelectedConnectorId(null)}
         style={{
           width: '100%',
           height: '100%',
@@ -469,13 +526,13 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
         </defs>
 
         {/* Connectors */}
-        {connectors.map((conn) => {
+        {connectors.map((conn, index) => {
           const from = getNodeCenter(conn.from);
           const to = getNodeCenter(conn.to);
-          const midX = (from.x + to.x) / 2;
-          const labelPoint = getOrthogonalPathMidpoint(from, to);
+          const bend = conn.bend ?? getDefaultConnectorBend(from, to, index);
+          const labelPoint = bend;
           const labelWidth = Math.min(280, Math.max(48, (conn.label?.length ?? 0) * 6.4 + 16));
-          const pathD = `M ${from.x} ${from.y} L ${midX} ${from.y} L ${midX} ${to.y} L ${to.x} ${to.y}`;
+          const pathD = getQuadraticConnectorPath(from, to, bend);
 
           const markerId = `wire-arrow-${conn.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
 
@@ -485,6 +542,11 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
               onDoubleClick={(e) => {
                 e.stopPropagation();
                 setEditingConnector(conn);
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedConnectorId(conn.id);
+                setSelectedNodeId(null);
               }}
               style={{ cursor: 'pointer' }}
             >
@@ -534,6 +596,30 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
                   </text>
                 </g>
               )}
+              {selectedConnectorId === conn.id && (
+                <g>
+                  <circle
+                    cx={bend.x}
+                    cy={bend.y}
+                    r="10"
+                    fill="transparent"
+                    pointerEvents="all"
+                    onPointerDown={(e) => startConnectorBendDrag(e, conn, bend)}
+                    style={{ cursor: 'grab' }}
+                  >
+                    <title>Drag to bend this wire</title>
+                  </circle>
+                  <circle
+                    cx={bend.x}
+                    cy={bend.y}
+                    r="5"
+                    fill={conn.color}
+                    stroke="#ffffff"
+                    strokeWidth="2"
+                    pointerEvents="none"
+                  />
+                </g>
+              )}
             </g>
           );
         })}
@@ -563,6 +649,7 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
               onClick={(e) => {
                 e.stopPropagation();
                 setSelectedNodeId(node.id);
+                setSelectedConnectorId(null);
               }}
               onMouseDown={(e) => {
                 e.stopPropagation();

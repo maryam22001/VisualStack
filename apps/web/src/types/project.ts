@@ -29,6 +29,7 @@ export interface VisualStackConnector {
   from: string;
   to: string;
   label?: string;
+  bend?: { x: number; y: number };
   color: string;
   dashed?: boolean;
 }

@@ -17,33 +17,35 @@ export function snapPoint(x: number, y: number, step: number = GRID_SIZE): { x: 
   };
 }
 
-export function getOrthogonalPathMidpoint(
-  from: { x: number; y: number },
-  to: { x: number; y: number }
-): { x: number; y: number } {
-  const midX = (from.x + to.x) / 2;
-  const points = [from, { x: midX, y: from.y }, { x: midX, y: to.y }, to];
-  const segments = points.slice(1).map((point, index) => {
-    const start = points[index];
-    return {
-      start,
-      end: point,
-      length: Math.abs(point.x - start.x) + Math.abs(point.y - start.y)
-    };
-  });
-  const halfLength = segments.reduce((total, segment) => total + segment.length, 0) / 2;
-  let traversed = 0;
+export interface DiagramPoint {
+  x: number;
+  y: number;
+}
 
-  for (const segment of segments) {
-    if (traversed + segment.length >= halfLength) {
-      const ratio = segment.length === 0 ? 0 : (halfLength - traversed) / segment.length;
-      return {
-        x: segment.start.x + (segment.end.x - segment.start.x) * ratio,
-        y: segment.start.y + (segment.end.y - segment.start.y) * ratio
-      };
-    }
-    traversed += segment.length;
-  }
+export function getDefaultConnectorBend(
+  from: DiagramPoint,
+  to: DiagramPoint,
+  index = 0
+): DiagramPoint {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const distance = Math.hypot(dx, dy);
+  const offset = Math.min(72, Math.max(28, distance * 0.16)) * (index % 2 === 0 ? 1 : -1);
+  const normalX = distance === 0 ? 0 : -dy / distance;
+  const normalY = distance === 0 ? -1 : dx / distance;
 
-  return to;
+  return {
+    x: (from.x + to.x) / 2 + normalX * offset,
+    y: (from.y + to.y) / 2 + normalY * offset
+  };
+}
+
+export function getQuadraticConnectorPath(
+  from: DiagramPoint,
+  to: DiagramPoint,
+  bend: DiagramPoint
+): string {
+  const controlX = 2 * bend.x - (from.x + to.x) / 2;
+  const controlY = 2 * bend.y - (from.y + to.y) / 2;
+  return `M ${from.x} ${from.y} Q ${controlX} ${controlY} ${to.x} ${to.y}`;
 }
