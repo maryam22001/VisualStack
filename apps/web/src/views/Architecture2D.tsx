@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { IconPicker } from '../components/IconPicker';
 import { NodeEditModal } from '../components/NodeEditModal';
+import { ComponentSidebar, type ArchitectureComponent } from '../components/ComponentSidebar';
 import type { IconResult } from '../utils/IconLibrary';
 import type { VisualStackNode, VisualStackConnector } from '../types/project';
 import { getDefaultConnectorBend, getQuadraticConnectorPath, snapToGrid } from '../utils/geometry';
@@ -24,6 +25,8 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
 }) => {
   const [nodes, setNodes] = useState<VisualStackNode[]>(propNodes || []);
   const [connectors, setConnectors] = useState<VisualStackConnector[]>(propConnectors || []);
+  const [sidebarExpanded, setSidebarExpanded] = useState(true);
+  const sidebarOffset = sidebarExpanded ? 210 : 42;
 
   // Viewport Pan / Zoom
   const [scale, setScale] = useState(0.9);
@@ -62,7 +65,7 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
     const newScale = Math.min(Math.max(scale * zoomFactor, 0.3), 3.0);
     if (containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
+      const mouseX = e.clientX - rect.left - sidebarOffset;
       const mouseY = e.clientY - rect.top;
       setPan({
         x: mouseX - (mouseX - pan.x) * (newScale / scale),
@@ -102,7 +105,7 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    const canvasX = (e.clientX - pan.x) / scale;
+    const canvasX = (e.clientX - sidebarOffset - pan.x) / scale;
     const canvasY = (e.clientY - pan.y) / scale;
     setMousePos({ x: canvasX, y: canvasY });
 
@@ -242,23 +245,23 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
     return { x: n.x + width / 2, y: n.y + height / 2 };
   };
 
-  const handleAddNode = () => {
+  const handleAddNode = (component?: ArchitectureComponent) => {
     const id = `node-${Date.now()}`;
     const newNode: VisualStackNode = {
       id,
-      label: 'New Microservice',
-      subtext: 'Custom Component',
-      badge: 'TCP / RPC',
-      iconUrl: 'https://api.iconify.design/lucide/box.svg',
-      color: '#0284c7',
-      x: 350,
-      y: 200,
+      label: component?.name ?? 'New Microservice',
+      subtext: component?.category ?? 'Custom Component',
+      badge: component ? '' : 'TCP / RPC',
+      iconUrl: component?.iconUrl ?? 'https://api.iconify.design/lucide/box.svg',
+      color: component?.color ?? '#0284c7',
+      x: 350 + nodes.length * 24,
+      y: 200 + nodes.length * 24,
       width: 190,
       height: 90
     };
     const nextNodes = [...nodes, newNode];
     setNodes(nextNodes);
-    setEditingNode(newNode);
+    if (!component) setEditingNode(newNode);
     notifyChange(nextNodes, connectors);
   };
 
@@ -322,13 +325,18 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
         cursor: isPanning ? 'grabbing' : connectingFrom ? 'crosshair' : 'default'
       }}
     >
+      <ComponentSidebar
+        theme={theme}
+        onAddNode={handleAddNode}
+        onExpandedChange={setSidebarExpanded}
+      />
       {/* Action Bar */}
       <div
         title="Double-click a node to edit it. Drag its blue handles to resize. Double-click a wire to add or edit its label."
         style={{
           position: 'absolute',
           top: 16,
-          left: 20,
+          left: sidebarExpanded ? 226 : 54,
           display: 'flex',
           gap: '8px',
           zIndex: 30,
@@ -339,21 +347,6 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
           boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
         }}
       >
-        <button
-          onClick={handleAddNode}
-          style={{
-            padding: '6px 14px',
-            background: '#0284c7',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '6px',
-            fontWeight: '600',
-            fontSize: '12px',
-            cursor: 'pointer'
-          }}
-        >
-          + Add Architecture Node
-        </button>
         <span style={{ alignSelf: 'center', maxWidth: 260, fontSize: 11, color: isDark ? '#94a3b8' : '#64748b' }}>
           Double-click a wire to add or edit its label
         </span>
@@ -434,7 +427,7 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
         style={{
           width: '100%',
           height: '100%',
-          transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
+          transform: `translate(${pan.x + sidebarOffset}px, ${pan.y}px) scale(${scale})`,
           transformOrigin: '0 0',
           overflow: 'visible'
         }}
@@ -584,7 +577,7 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
               onMouseDown={(e) => {
                 e.stopPropagation();
                 setSelectedNodeId(node.id);
-                const mouseX = (e.clientX - pan.x) / scale;
+                const mouseX = (e.clientX - sidebarOffset - pan.x) / scale;
                 const mouseY = (e.clientY - pan.y) / scale;
                 setDraggedNode({ id: node.id, offsetX: mouseX - node.x, offsetY: mouseY - node.y });
               }}

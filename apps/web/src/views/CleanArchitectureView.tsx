@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { IconPicker } from '../components/IconPicker';
 import { ColorPicker, NodeEditModal } from '../components/NodeEditModal';
+import { ComponentSidebar, type ArchitectureComponent } from '../components/ComponentSidebar';
 import type { IconResult } from '../utils/IconLibrary';
 import type { VisualStackCluster, VisualStackNode, VisualStackConnector } from '../types/project';
 import { getDefaultConnectorBend, getQuadraticConnectorPath, snapToGrid } from '../utils/geometry';
@@ -78,10 +79,12 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
   const [internalClusters, setInternalClusters] = useState<VisualStackCluster[]>([]);
   const [internalNodes, setInternalNodes] = useState<VisualStackNode[]>([]);
   const [internalConnectors, setInternalConnectors] = useState<VisualStackConnector[]>([]);
+  const [sidebarExpanded, setSidebarExpanded] = useState(true);
 
   const clusters = propClusters ?? internalClusters;
   const nodes = propNodes ?? internalNodes;
   const connectors = propConnectors ?? internalConnectors;
+  const sidebarOffset = sidebarExpanded ? 210 : 42;
 
   const notifyChange = useCallback((
     nextClusters = clusters,
@@ -187,7 +190,7 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
     const newScale = Math.min(Math.max(scale * zoomFactor, 0.3), 3.0);
     if (containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
+      const mouseX = e.clientX - rect.left - sidebarOffset;
       const mouseY = e.clientY - rect.top;
       setPan({
         x: mouseX - (mouseX - pan.x) * (newScale / scale),
@@ -211,7 +214,7 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    const canvasX = (e.clientX - pan.x) / scale;
+    const canvasX = (e.clientX - sidebarOffset - pan.x) / scale;
     const canvasY = (e.clientY - pan.y) / scale;
     setMousePos({ x: canvasX, y: canvasY });
 
@@ -329,21 +332,21 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
     setSelectedId(id);
   };
 
-  const handleAddNode = () => {
+  const handleAddNode = (component?: ArchitectureComponent) => {
     const id = `node-${window.crypto?.randomUUID ? window.crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 9)}`;
     const newNode: VisualStackNode = {
       id,
-      label: 'new-service',
-      subtext: 'Service Module',
-      iconUrl: 'https://api.iconify.design/logos/nginx.svg',
-      x: 450,
-      y: 250,
+      label: component?.name ?? 'new-service',
+      subtext: component?.category ?? 'Service Module',
+      iconUrl: component?.iconUrl ?? 'https://api.iconify.design/logos/nginx.svg',
+      x: 450 + nodes.length * 24,
+      y: 250 + nodes.length * 24,
       width: 68,
       height: 64
     };
     const nextNodes = [...nodes, newNode];
     setNodes(nextNodes);
-    setEditingNode(newNode);
+    if (!component) setEditingNode(newNode);
     setSelectedId(id);
   };
 
@@ -408,13 +411,19 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
         cursor: isPanning ? 'grabbing' : connectingFrom ? 'crosshair' : 'default'
       }}
     >
+      <ComponentSidebar
+        theme={theme}
+        onAddNode={handleAddNode}
+        onAddEnclosure={handleAddCluster}
+        onExpandedChange={setSidebarExpanded}
+      />
       {/* Top Floating Control Bar */}
       <div
         title="Double-click a wire to add or edit its label."
         style={{
           position: 'absolute',
           top: 16,
-          left: 20,
+          left: sidebarExpanded ? 226 : 54,
           display: 'flex',
           gap: '8px',
           zIndex: 40,
@@ -425,38 +434,9 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
           boxShadow: '0 4px 12px rgba(0,0,0,0.08)'
         }}
       >
-        <button
-          onClick={handleAddCluster}
-          style={{
-            padding: '6px 12px',
-            background: '#e0f2fe',
-            color: '#0369a1',
-            border: '1px solid #7dd3fc',
-            borderRadius: '6px',
-            fontWeight: '600',
-            fontSize: '12px',
-            cursor: 'pointer'
-          }}
-        >
-          + Add Enclosure Pod
-        </button>
-
-        <button
-          onClick={handleAddNode}
-          style={{
-            padding: '6px 12px',
-            background: '#0284c7',
-            color: '#ffffff',
-            border: 'none',
-            borderRadius: '6px',
-            fontWeight: '600',
-            fontSize: '12px',
-            cursor: 'pointer'
-          }}
-        >
-          + Add Service Node
-        </button>
-
+        <span style={{ alignSelf: 'center', maxWidth: 280, fontSize: 11, color: isDark ? '#94a3b8' : '#64748b' }}>
+          Add components from the sidebar. Double-click a wire to edit its label.
+        </span>
         {connectingFrom && (
           <button
             onClick={() => setConnectingFrom(null)}
@@ -561,7 +541,7 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
         style={{
           width: '100%',
           height: '100%',
-          transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
+          transform: `translate(${pan.x + sidebarOffset}px, ${pan.y}px) scale(${scale})`,
           transformOrigin: '0 0',
           overflow: 'visible'
         }}
@@ -594,7 +574,7 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
         <rect id="grid-bg" x="-5000" y="-5000" width="10000" height="10000" fill="url(#clean-grid-dots)" />
 
         {/* 1. Group Enclosures / Pods */}
-        {clusters.map((c) => {
+        {[...clusters].sort((a, b) => b.width * b.height - a.width * a.height).map((c) => {
           const isSelected = selectedId === c.id;
           return (
             <g
@@ -607,7 +587,7 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
               onMouseDown={(e) => {
                 e.stopPropagation();
                 setSelectedId(c.id);
-                const mouseX = (e.clientX - pan.x) / scale;
+                const mouseX = (e.clientX - sidebarOffset - pan.x) / scale;
                 const mouseY = (e.clientY - pan.y) / scale;
                 setDraggedCluster({ id: c.id, offsetX: mouseX - c.x, offsetY: mouseY - c.y });
               }}
@@ -769,7 +749,7 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
               onMouseDown={(e) => {
                 e.stopPropagation();
                 setSelectedId(node.id);
-                const mouseX = (e.clientX - pan.x) / scale;
+                const mouseX = (e.clientX - sidebarOffset - pan.x) / scale;
                 const mouseY = (e.clientY - pan.y) / scale;
                 setDraggedNode({ id: node.id, offsetX: mouseX - node.x, offsetY: mouseY - node.y });
               }}
