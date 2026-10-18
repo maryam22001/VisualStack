@@ -131,9 +131,197 @@ body {
   outline: 0;
 }
 
+.vs-json-design__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, .58);
+}
+
+.vs-json-design {
+  width: min(680px, 100%);
+  max-height: min(760px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow: auto;
+  padding: 24px;
+  border: 1px solid;
+  border-radius: 14px;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, .3);
+}
+
+.vs-json-design__header,
+.vs-json-design__footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.vs-json-design__header h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.vs-json-design__header p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.vs-json-design__close {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border: 0;
+  border-radius: 6px;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-size: 23px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.vs-json-design__close:hover {
+  background: rgba(148, 163, 184, .18);
+}
+
+.vs-json-design__modes {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 9px;
+  background: rgba(148, 163, 184, .14);
+}
+
+.vs-json-design__modes button,
+.vs-json-design__upload button,
+.vs-json-design__cancel,
+.vs-json-design__convert {
+  min-height: 36px;
+  padding: 0 13px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.vs-json-design__modes button {
+  flex: 1;
+  color: inherit;
+  background: transparent;
+}
+
+.vs-json-design__modes button.is-active {
+  border-color: rgba(148, 163, 184, .3);
+  background: #0284c7;
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .12);
+}
+
+.vs-json-design__upload {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.vs-json-design__upload button,
+.vs-json-design__cancel {
+  border-color: #cbd5e1;
+  color: #334155;
+  background: #f1f5f9;
+}
+
+.vs-json-design__upload span {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vs-json-design__label {
+  margin-bottom: -10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.vs-json-design textarea {
+  width: 100%;
+  min-height: 240px;
+  resize: vertical;
+  padding: 13px;
+  border: 1px solid;
+  border-radius: 8px;
+  font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
+  tab-size: 2;
+}
+
+.vs-json-design textarea:focus {
+  outline: 2px solid #38bdf8;
+  outline-offset: 1px;
+}
+
+.vs-json-design__error {
+  margin: -8px 0 0;
+  color: #ef4444;
+  font-size: 13px;
+}
+
+.vs-json-design__footer {
+  align-items: center;
+}
+
+.vs-json-design__footer > span {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.vs-json-design__footer > div {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+
+.vs-json-design__convert {
+  color: #fff;
+  background: #0284c7;
+}
+
+.vs-json-design__convert:hover:not(:disabled) {
+  background: #0369a1;
+}
+
+.vs-json-design__convert:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+
 .vs-app-workspace {
   min-height: 0;
   min-width: 0;
+}
+
+@media (max-width: 560px) {
+  .vs-json-design {
+    padding: 18px;
+  }
+
+  .vs-json-design__footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .vs-json-design__footer > div {
+    justify-content: flex-end;
+  }
 }
 
 @media (max-width: 1180px) {
