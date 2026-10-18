@@ -15,6 +15,7 @@ import {
 import { useProjectHistory } from './hooks/useProjectHistory';
 import { convertProjectToIsoflowData } from './utils/isoflowAdapter';
 import { DesignGalleryModal } from './components/DesignGalleryModal';
+import { JsonToDesignModal } from './components/JsonToDesignModal';
 import { useAuth } from './hooks/useAuth';
 import { useDesigns } from './hooks/useDesigns';
 import { errorMessage } from './api/client';
@@ -80,7 +81,6 @@ export default function App() {
 
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving'>('saved');
   const [theme, setTheme] = useState<'dark' | 'light'>('light');
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const isFirstRender = useRef(true);
 
   // Gallery: server-backed for signed-in users (workspaces + roles), localStorage for guests.
@@ -89,6 +89,7 @@ export default function App() {
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [isJsonToDesignOpen, setIsJsonToDesignOpen] = useState(false);
 
   // When the signed-in identity changes (sign-out, expired session, a different user) reset
   // everything tied to the previous one, so the next session never inherits an open modal or
@@ -98,6 +99,7 @@ export default function App() {
   if (seenIdentity !== identity) {
     setSeenIdentity(identity);
     setIsGalleryOpen(false);
+    setIsJsonToDesignOpen(false);
     setCurrentDesignId(null);
   }
 
@@ -286,25 +288,12 @@ export default function App() {
     });
   };
 
-  const handleImportJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const parsed = JSON.parse(event.target?.result as string);
-        if (parsed.title && (parsed.cleanView || parsed.detailed2DView)) {
-          const synchronized = synchronizeProjectViews(parsed);
-          setProjectDirect(synchronized);
-          saveProjectToStorage(synchronized);
-        } else {
-          alert('Invalid VisualStack design file format.');
-        }
-      } catch {
-        alert('Failed to parse JSON file.');
-      }
-    };
-    reader.readAsText(file);
+  const handleJsonDesign = (imported: VisualStackProject) => {
+    const synchronized = synchronizeProjectViews(imported);
+    setProjectDirect(synchronized);
+    setCurrentDesignId(null);
+    saveProjectToStorage(synchronized);
+    setIsJsonToDesignOpen(false);
   };
 
   const handleSaveDesign = async () => {
@@ -508,14 +497,6 @@ export default function App() {
 
         {/* Right Section: Workspace, Save, Gallery & Exports */}
         <div className="vs-app-header__actions" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <input
-            type="file"
-            ref={fileInputRef}
-            accept=".json"
-            onChange={handleImportJSON}
-            style={{ display: 'none' }}
-          />
-
           <button
             onClick={handleSaveDesign}
             disabled={isSaving || !store.canEdit}
@@ -564,6 +545,16 @@ export default function App() {
             }}
           >
             🔗 Share
+          </button>
+
+          <button
+            type="button"
+            className="vs-app-export__trigger"
+            aria-haspopup="dialog"
+            aria-expanded={isJsonToDesignOpen}
+            onClick={() => setIsJsonToDesignOpen(true)}
+          >
+            JSON to design
           </button>
 
           <div className="vs-app-export">
@@ -702,6 +693,13 @@ export default function App() {
           }
         }}
       />
+      {isJsonToDesignOpen && (
+        <JsonToDesignModal
+          theme={theme}
+          onClose={() => setIsJsonToDesignOpen(false)}
+          onConvert={handleJsonDesign}
+        />
+      )}
     </div>
   );
 }
