@@ -62,9 +62,11 @@
     display: flex;
     flex-direction: column;
     justify-content: space-between;
-    padding: 40px 48px;
+    padding: 30px 42px;
     color: #fff;
-    background: linear-gradient(160deg, var(--ink) 0%, var(--slate-800) 100%);
+    background:
+        radial-gradient(ellipse at 52% 58%, rgba(15, 67, 103, 0.62), transparent 62%),
+        linear-gradient(150deg, #071426 0%, #101c30 58%, #0b1729 100%);
 }
 
 /* dotted grid, like the studio canvas */
@@ -72,10 +74,10 @@
     content: '';
     position: absolute;
     inset: 0;
-    background-image: radial-gradient(rgba(148, 163, 184, 0.22) 1px, transparent 1px);
+    background-image: radial-gradient(rgba(106, 174, 211, 0.24) 1px, transparent 1.2px);
     background-size: 22px 22px;
-    mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0.15));
-    -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0.15));
+    mask-image: radial-gradient(ellipse 68% 62% at 46% 56%, #000 12%, rgba(0, 0, 0, 0.8) 52%, transparent 100%);
+    -webkit-mask-image: radial-gradient(ellipse 68% 62% at 46% 56%, #000 12%, rgba(0, 0, 0, 0.8) 52%, transparent 100%);
     pointer-events: none;
 }
 
@@ -86,22 +88,23 @@
 .vs-auth__logo {
     display: flex;
     align-items: center;
-    gap: 10px;
-    font-size: 18px;
-    font-weight: 700;
-    letter-spacing: -0.2px;
+    gap: 12px;
+    font-size: 23px;
+    font-weight: 750;
+    letter-spacing: -0.45px;
 }
 
 .vs-auth__logo svg {
-    width: 30px;
-    height: 30px;
+    width: 40px;
+    height: 40px;
+    filter: drop-shadow(0 4px 10px rgba(14, 165, 233, 0.25));
 }
 
 .vs-auth__hero h1 {
-    font-size: 34px;
+    font-size: clamp(28px, 3vw, 36px);
     line-height: 1.15;
-    font-weight: 700;
-    letter-spacing: -0.8px;
+    font-weight: 750;
+    letter-spacing: -0.9px;
     color: #fff;
 }
 
@@ -142,17 +145,20 @@
     font-style: normal;
     font-size: 12px;
     font-weight: 700;
-    color: #7dd3fc;
-    background: rgba(2, 132, 199, 0.22);
-    border: 1px solid rgba(56, 189, 248, 0.35);
+    color: #fff;
+    background: linear-gradient(145deg, #22d3ee, #0ea5e9);
+    border: 1px solid rgba(186, 230, 253, 0.8);
+    box-shadow: 0 0 16px rgba(34, 211, 238, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.32);
 }
 
 .vs-auth__art {
     position: absolute !important;
-    right: -30px;
-    bottom: -10px;
-    width: 380px;
-    opacity: 0.95;
+    right: -24px;
+    bottom: -6px;
+    width: min(58%, 520px);
+    max-height: 55%;
+    overflow: visible;
+    filter: drop-shadow(0 12px 30px rgba(14, 165, 233, 0.12));
     pointer-events: none;
 }
 
@@ -167,33 +173,53 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 32px 24px;
+    padding: 64px 28px 32px;
     overflow-y: auto;
+    background: linear-gradient(135deg, #f3f8fc 0%, #eaf2f8 100%);
 }
 
 .vs-auth__guest {
     position: absolute;
-    top: 20px;
-    right: 24px;
-    background: none;
-    border: 0;
+    top: 16px;
+    right: 20px;
+    min-height: 38px;
+    padding: 0 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.82);
+    border: 1px solid #cbd8e2;
+    border-radius: 999px;
+    box-shadow: 0 3px 10px rgba(15, 23, 42, 0.09);
     cursor: pointer;
-    font-size: 13px;
-    color: var(--slate-500);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--slate-700);
+    transition: background 0.15s, border-color 0.15s, transform 0.15s, box-shadow 0.15s;
 }
 
 .vs-auth__guest:hover {
     color: var(--sky-700);
+    background: #fff;
+    border-color: #8bc9e8;
+    box-shadow: 0 5px 14px rgba(15, 23, 42, 0.13);
+    transform: translateY(-1px);
+}
+
+.vs-auth__guest:focus-visible {
+    outline: 3px solid rgba(2, 132, 199, 0.3);
+    outline-offset: 2px;
 }
 
 .vs-auth__card {
     width: 100%;
-    max-width: 400px;
+    max-width: 430px;
     background: #fff;
-    border: 1px solid var(--slate-200);
-    border-radius: 14px;
-    padding: 32px;
-    box-shadow: 0 10px 30px -12px rgba(15, 23, 42, 0.12);
+    border: 1px solid #d4e0e9;
+    border-radius: 16px;
+    padding: 30px;
+    box-shadow: 0 18px 48px -20px rgba(15, 35, 55, 0.26), 0 2px 8px rgba(15, 35, 55, 0.05);
 }
 
 .vs-auth__mobile-logo {
@@ -249,13 +275,13 @@
 
 .vs-auth__input {
     width: 100%;
-    height: 42px;
-    padding: 0 12px;
+    height: 44px;
+    padding: 0 13px;
     font: inherit;
     font-size: 14px;
     color: var(--ink);
-    background: #fff;
-    border: 1px solid var(--slate-300);
+    background: #fbfdff;
+    border: 1px solid #b9c9d5;
     border-radius: 8px;
     outline: none;
     transition: border-color .15s, box-shadow .15s;
@@ -404,6 +430,84 @@
     cursor: default;
 }
 
+.vs-auth__socials {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin: 0 0 17px;
+}
+
+.vs-auth__social-btn {
+    min-width: 0;
+    min-height: 40px;
+    padding: 0 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    border: 1px solid #cbd7e1;
+    border-radius: 8px;
+    background: #fff;
+    color: #26384a;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color .15s, background .15s, box-shadow .15s, transform .05s;
+}
+
+.vs-auth__social-btn svg {
+    width: 16px;
+    height: 16px;
+    flex: none;
+}
+
+.vs-auth__social-btn:hover {
+    background: #f8fbfd;
+    border-color: #91a9bb;
+    box-shadow: 0 3px 9px rgba(15, 23, 42, 0.08);
+}
+
+.vs-auth__social-btn:active {
+    transform: translateY(1px);
+}
+
+.vs-auth__social-btn:focus-visible {
+    outline: 3px solid rgba(2, 132, 199, 0.25);
+    outline-offset: 2px;
+}
+
+.vs-auth__divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 0 0 17px;
+    color: var(--slate-500);
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.vs-auth__divider::before,
+.vs-auth__divider::after {
+    content: '';
+    height: 1px;
+    flex: 1;
+    background: #dce5eb;
+}
+
+.vs-auth__legal {
+    margin-top: 14px;
+    color: var(--slate-500);
+    font-size: 11px;
+    line-height: 1.5;
+    text-align: center !important;
+}
+
+.vs-auth__legal span {
+    color: var(--sky-700);
+    font-weight: 600;
+}
+
 /* ---------- 6-digit code ---------- */
 .vs-auth__otp {
     display: grid;
@@ -455,6 +559,30 @@
 
     .vs-auth__card {
         padding: 24px;
+    }
+
+    .vs-auth__side {
+        padding: 68px 20px 24px;
+    }
+}
+
+@media (max-width: 520px) {
+    .vs-auth__side {
+        align-items: flex-start;
+        padding: 70px 14px 20px;
+    }
+
+    .vs-auth__card {
+        padding: 22px 18px;
+    }
+
+    .vs-auth__socials {
+        grid-template-columns: 1fr;
+    }
+
+    .vs-auth__guest {
+        top: 14px;
+        right: 14px;
     }
 }
 

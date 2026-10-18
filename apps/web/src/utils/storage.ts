@@ -127,7 +127,7 @@ function getSvgExportSize(svgElement: SVGElement): { width: number; height: numb
   }
   return { width, height };
 }
-export const defaultProject: VisualStackProject = {
+const legacyStarterProject: VisualStackProject = {
   id: 'proj-default',
   title: 'Untitled Architecture',
   updatedAt: new Date().toISOString(),
@@ -216,11 +216,47 @@ export const defaultProject: VisualStackProject = {
   }
 };
 
+export const defaultProject: VisualStackProject = {
+  id: 'proj-default',
+  title: 'Untitled Architecture',
+  updatedAt: new Date().toISOString(),
+  activeTab: 'clean',
+  cleanView: { clusters: [], nodes: [], connectors: [] },
+  detailed2DView: { nodes: [], connectors: [] }
+};
+
+function isUntouchedLegacyStarter(parsed: Partial<VisualStackProject>): boolean {
+  if (
+    parsed.id !== legacyStarterProject.id ||
+    parsed.title !== legacyStarterProject.title ||
+    parsed.activeTab !== legacyStarterProject.activeTab ||
+    !parsed.cleanView ||
+    !parsed.detailed2DView
+  ) return false;
+
+  const withoutTimestamp = <T extends { updatedAt?: string }>(project: T) => {
+    const content = { ...project };
+    delete content.updatedAt;
+    return JSON.stringify(content);
+  };
+  const synchronizedLegacy = {
+    ...legacyStarterProject,
+    detailed2DView: {
+      nodes: legacyStarterProject.cleanView.nodes,
+      connectors: legacyStarterProject.cleanView.connectors
+    }
+  };
+
+  return withoutTimestamp(parsed) === withoutTimestamp(legacyStarterProject) ||
+    withoutTimestamp(parsed) === withoutTimestamp(synchronizedLegacy);
+}
+
 export function loadSavedProject(): VisualStackProject {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return defaultProject;
     const parsed = JSON.parse(raw);
+    if (isUntouchedLegacyStarter(parsed)) return defaultProject;
     
     // Ensure all critical sections exist to prevent property access crashes
     return {

@@ -40,23 +40,79 @@ const LogoMark: React.FC = () => (
 );
 
 const BrandArt: React.FC = () => (
-  <svg className="vs-auth__art" viewBox="0 0 380 300" aria-hidden="true">
+  <svg className="vs-auth__art" viewBox="0 0 540 360" aria-hidden="true">
     <defs>
-      <g id="vs-cube">
-        <polygon points="50 10, 90 32, 50 54, 10 32" fill="#38bdf8" />
-        <polygon points="10 32, 50 54, 50 92, 10 70" fill="#0284c7" />
-        <polygon points="90 32, 50 54, 50 92, 90 70" fill="#075985" />
-      </g>
+      <linearGradient id="vs-platform-top" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stopColor="#dff8ff" />
+        <stop offset="1" stopColor="#60c8f2" />
+      </linearGradient>
+      <linearGradient id="vs-platform-side" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stopColor="#39a8e0" />
+        <stop offset="1" stopColor="#1769a8" />
+      </linearGradient>
+      <filter id="vs-art-glow" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="8" />
+      </filter>
     </defs>
-    <g stroke="#38bdf8" strokeOpacity="0.55" strokeWidth="2" strokeDasharray="5 7" fill="none">
-      <path d="M120 150 L230 90" />
-      <path d="M120 150 L290 215" />
-      <path d="M230 90 L290 215" />
+
+    <ellipse cx="302" cy="277" rx="205" ry="38" fill="#0ea5e9" opacity="0.18" filter="url(#vs-art-glow)" />
+    <g stroke="#67d9ff" strokeOpacity="0.75" strokeWidth="2" fill="none">
+      <path d="M92 204 277 100 465 207 278 313Z" opacity=".32" />
+      <path d="M92 204 278 313M185 152 372 259M277 100 465 207M371 153 185 259" opacity=".22" />
+      <path d="M172 183 278 122M278 122 382 183M172 183 278 244M382 183 278 244" strokeDasharray="4 7" />
     </g>
-    <use href="#vs-cube" transform="translate(180 20) scale(1.1)" />
-    <use href="#vs-cube" transform="translate(70 105) scale(0.9)" />
-    <use href="#vs-cube" transform="translate(240 170) scale(1)" />
+
+    <g opacity=".42">
+      <path d="m250 252 30-17 30 17-30 18Z" fill="#7ee7ff" />
+      <path d="m250 252 30 18v16l-30-18Z" fill="#1687c2" />
+      <path d="m310 252-30 18v16l30-18Z" fill="#075985" />
+    </g>
+    <g>
+      <path d="m67 224 32-18 32 18-32 19Z" fill="url(#vs-platform-top)" />
+      <path d="m67 224 32 19v42l-32-19Z" fill="#2188ca" />
+      <path d="m131 224-32 19v42l32-19Z" fill="url(#vs-platform-side)" />
+      <path d="m76 233 23 14 23-14M76 243l23 14 23-14" stroke="#dff8ff" strokeOpacity=".8" fill="none" />
+      <path d="m242 261 38-22 38 22-38 23Z" fill="url(#vs-platform-top)" />
+      <path d="m242 261 38 23v40l-38-23Z" fill="#2188ca" />
+      <path d="m318 261-38 23v40l38-23Z" fill="url(#vs-platform-side)" />
+      <path d="m255 267 25 15 25-15" stroke="#e6fbff" strokeOpacity=".8" fill="none" />
+      <path d="m403 218 29-17 29 17-29 18Z" fill="url(#vs-platform-top)" />
+      <path d="m403 218 29 18v38l-29-18Z" fill="#2188ca" />
+      <path d="m461 218-29 18v38l29-18Z" fill="url(#vs-platform-side)" />
+      <path d="m412 226 20 12 20-12" stroke="#e6fbff" strokeOpacity=".8" fill="none" />
+    </g>
+
+    <g>
+      <path d="m157 104 39-22 39 22-39 23Z" fill="url(#vs-platform-top)" />
+      <path d="m157 104 39 23v59l-39-23Z" fill="#1687c2" />
+      <path d="m235 104-39 23v59l39-23Z" fill="url(#vs-platform-side)" />
+      <path d="m169 113 27 16 27-16M169 127l27 16 27-16M169 141l27 16 27-16" stroke="#e6fbff" strokeOpacity=".84" fill="none" />
+      <path d="m337 128 31-18 31 18-31 19Z" fill="url(#vs-platform-top)" />
+      <path d="m337 128 31 19v48l-31-19Z" fill="#1687c2" />
+      <path d="m399 128-31 19v48l31-19Z" fill="url(#vs-platform-side)" />
+      <path d="m348 137 20 12 20-12M348 149l20 12 20-12" stroke="#e6fbff" strokeOpacity=".84" fill="none" />
+      <ellipse cx="282" cy="111" rx="21" ry="12" fill="#b8f6ff" opacity=".92" />
+      <path d="m261 111v27c0 7 9 13 21 13s21-6 21-13v-27" fill="#28a4d7" />
+      <ellipse cx="282" cy="138" rx="21" ry="12" fill="#0d78ad" />
+      <ellipse cx="282" cy="111" rx="21" ry="12" fill="#d5fbff" />
+    </g>
   </svg>
+);
+
+const SocialButtons: React.FC<{ onUnavailable: (provider: string) => void }> = ({ onUnavailable }) => (
+  <>
+    <div className="vs-auth__socials">
+      <button type="button" className="vs-auth__social-btn" onClick={() => onUnavailable('GitHub')}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 .9a11.1 11.1 0 0 0-3.51 21.63c.55.1.76-.24.76-.54v-2.1c-3.1.68-3.76-1.32-3.76-1.32-.5-1.3-1.23-1.65-1.23-1.65-1.01-.7.08-.69.08-.69 1.12.08 1.71 1.15 1.71 1.15.99 1.7 2.59 1.21 3.22.93.1-.72.39-1.21.7-1.49-2.48-.28-5.09-1.24-5.09-5.52 0-1.22.44-2.21 1.15-2.99-.12-.28-.5-1.42.11-2.95 0 0 .94-.3 3.05 1.14a10.6 10.6 0 0 1 5.55 0c2.12-1.44 3.05-1.14 3.05-1.14.61 1.53.23 2.67.11 2.95.72.78 1.15 1.77 1.15 2.99 0 4.29-2.61 5.23-5.1 5.51.4.35.75 1.03.75 2.08v3.1c0 .3.2.65.77.54A11.1 11.1 0 0 0 12 .9Z" /></svg>
+        Continue with GitHub
+      </button>
+      <button type="button" className="vs-auth__social-btn" onClick={() => onUnavailable('Google')}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M21.6 12.23c0-.72-.06-1.42-.18-2.09H12v3.95h5.38a4.6 4.6 0 0 1-2 3.02v2.47h3.24c1.9-1.75 2.98-4.33 2.98-7.35Z" /><path fill="#34A853" d="M12 22c2.7 0 4.97-.9 6.62-2.42l-3.24-2.47c-.9.6-2.05.95-3.38.95-2.6 0-4.8-1.76-5.59-4.12H3.06v2.55A10 10 0 0 0 12 22Z" /><path fill="#FBBC05" d="M6.41 13.94A6.01 6.01 0 0 1 6.1 12c0-.67.11-1.32.31-1.94V7.51H3.06A10 10 0 0 0 2 12c0 1.62.39 3.16 1.06 4.49l3.35-2.55Z" /><path fill="#EA4335" d="M12 5.94c1.47 0 2.8.5 3.84 1.5l2.88-2.88A9.62 9.62 0 0 0 12 2a10 10 0 0 0-8.94 5.51l3.35 2.55c.79-2.36 2.99-4.12 5.59-4.12Z" /></svg>
+        Continue with Google
+      </button>
+    </div>
+    <div className="vs-auth__divider"><span>or continue with email</span></div>
+  </>
 );
 
 const Spinner: React.FC = () => <span className="vs-auth__spinner" aria-hidden="true" />;
@@ -486,6 +542,7 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({ initialScreen, onNavig
           {/* ---------------- Sign in ---------------- */}
           {screen === 'login' && (
             <>
+              <SocialButtons onUnavailable={(provider) => setNotice(`${provider} sign-in is not configured yet. Please continue with email.`)} />
               <form className="vs-auth__form" onSubmit={handleLogin}>
                 <Field id="login-email" label="Email" type="email" value={email} onChange={setEmail} autoComplete="email" placeholder="you@company.com" autoFocus />
                 <PasswordField
@@ -517,14 +574,18 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({ initialScreen, onNavig
           {/* ---------------- Sign up ---------------- */}
           {screen === 'signup' && (
             <>
+              <SocialButtons onUnavailable={(provider) => setNotice(`${provider} sign-up is not configured yet. Please continue with email.`)} />
               <form className="vs-auth__form" onSubmit={handleRegister}>
                 <Field id="signup-name" label="Full name" value={fullName} onChange={setFullName} autoComplete="name" placeholder="Ada Lovelace" autoFocus />
-                <Field id="signup-email" label="Work email" type="email" value={email} onChange={setEmail} autoComplete="email" placeholder="you@company.com" />
+                <Field id="signup-email" label="Email" type="email" value={email} onChange={setEmail} autoComplete="email" placeholder="you@company.com" />
                 <PasswordField id="signup-password" label="Password" value={password} onChange={setPassword} autoComplete="new-password" placeholder="At least 8 characters" hint="Use 8 or more characters." />
                 <button type="submit" className="vs-auth__btn" disabled={loading}>
                   {submitLabel('Create account', 'Creating account…')}
                 </button>
               </form>
+              <p className="vs-auth__legal">
+                By creating an account, you agree to our <span>Terms</span> and <span>Privacy Policy</span>.
+              </p>
               <p className="vs-auth__switch">
                 Already have an account?{' '}
                 <button type="button" className="vs-auth__link" onClick={() => go('login')}>

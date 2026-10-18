@@ -17,128 +17,6 @@ export interface CleanArchitectureProps {
   }) => void;
 }
 
-const defaultClusters: VisualStackCluster[] = [
-  {
-    id: 'cluster-edge',
-    title: 'Edge & Ingestion Zone',
-    x: 80,
-    y: 120,
-    width: 250,
-    height: 380,
-    color: 'rgba(2, 132, 199, 0.05)',
-    borderColor: '#38bdf8'
-  },
-  {
-    id: 'cluster-platform',
-    title: 'Core Platform & Services (HA)',
-    x: 400,
-    y: 80,
-    width: 360,
-    height: 440,
-    color: 'rgba(16, 185, 129, 0.05)',
-    borderColor: '#34d399'
-  },
-  {
-    id: 'cluster-data',
-    title: 'Data & Persistence Mesh',
-    x: 830,
-    y: 120,
-    width: 280,
-    height: 380,
-    color: 'rgba(245, 158, 11, 0.05)',
-    borderColor: '#fbbf24'
-  }
-];
-
-const defaultNodes: VisualStackNode[] = [
-  {
-    id: 'n-gateway',
-    clusterId: 'cluster-edge',
-    label: 'API Gateway',
-    subtext: 'Kong / Envoy Proxy',
-    iconUrl: 'https://api.iconify.design/logos/nginx.svg',
-    x: 160,
-    y: 200,
-    width: 68,
-    height: 64
-  },
-  {
-    id: 'n-auth',
-    clusterId: 'cluster-edge',
-    label: 'OAuth Identity',
-    subtext: 'JWT / Keycloak',
-    iconUrl: 'https://api.iconify.design/logos/jwt-icon.svg',
-    x: 160,
-    y: 350,
-    width: 68,
-    height: 64
-  },
-  {
-    id: 'n-orchestrator',
-    clusterId: 'cluster-platform',
-    label: 'App Orchestrator',
-    subtext: 'FastAPI / Go Mesh',
-    iconUrl: 'https://api.iconify.design/logos/fastapi.svg',
-    x: 460,
-    y: 180,
-    width: 68,
-    height: 64
-  },
-  {
-    id: 'n-broker',
-    clusterId: 'cluster-platform',
-    label: 'Message Broker',
-    subtext: 'Kafka Cluster :9092',
-    iconUrl: 'https://api.iconify.design/logos/kafka.svg',
-    x: 630,
-    y: 180,
-    width: 68,
-    height: 64
-  },
-  {
-    id: 'n-worker',
-    clusterId: 'cluster-platform',
-    label: 'Pipeline Worker',
-    subtext: 'Celery / Node Workers',
-    iconUrl: 'https://api.iconify.design/logos/nodejs-icon.svg',
-    x: 545,
-    y: 360,
-    width: 68,
-    height: 64
-  },
-  {
-    id: 'n-postgres',
-    clusterId: 'cluster-data',
-    label: 'Primary Postgres',
-    subtext: 'WAL Replication',
-    iconUrl: 'https://api.iconify.design/logos/postgresql.svg',
-    x: 935,
-    y: 200,
-    width: 68,
-    height: 64
-  },
-  {
-    id: 'n-redis',
-    clusterId: 'cluster-data',
-    label: 'Redis Cache',
-    subtext: 'Cluster State & Tokens',
-    iconUrl: 'https://api.iconify.design/logos/redis.svg',
-    x: 935,
-    y: 350,
-    width: 68,
-    height: 64
-  }
-];
-
-const defaultConnectors: VisualStackConnector[] = [
-  { id: 'c-1', from: 'n-gateway', to: 'n-orchestrator', label: 'gRPC / HTTP', color: '#0284c7' },
-  { id: 'c-2', from: 'n-gateway', to: 'n-auth', label: 'Verify', color: '#64748b', dashed: true },
-  { id: 'c-3', from: 'n-orchestrator', to: 'n-broker', label: 'Produce Event', color: '#059669' },
-  { id: 'c-4', from: 'n-broker', to: 'n-worker', label: 'Consume Jobs', color: '#d97706' },
-  { id: 'c-5', from: 'n-orchestrator', to: 'n-postgres', label: 'ACID Persist', color: '#0284c7' },
-  { id: 'c-6', from: 'n-orchestrator', to: 'n-redis', label: 'Session Cache', color: '#dc2626', dashed: true }
-];
-
 function SafeSvgIcon({
   url,
   x,
@@ -197,9 +75,9 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
   connectors: propConnectors,
   onChange
 }) => {
-  const [internalClusters, setInternalClusters] = useState<VisualStackCluster[]>(defaultClusters);
-  const [internalNodes, setInternalNodes] = useState<VisualStackNode[]>(defaultNodes);
-  const [internalConnectors, setInternalConnectors] = useState<VisualStackConnector[]>(defaultConnectors);
+  const [internalClusters, setInternalClusters] = useState<VisualStackCluster[]>([]);
+  const [internalNodes, setInternalNodes] = useState<VisualStackNode[]>([]);
+  const [internalConnectors, setInternalConnectors] = useState<VisualStackConnector[]>([]);
 
   const clusters = propClusters ?? internalClusters;
   const nodes = propNodes ?? internalNodes;

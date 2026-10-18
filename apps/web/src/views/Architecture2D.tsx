@@ -15,76 +15,6 @@ export interface Architecture2DProps {
   }) => void;
 }
 
-const initialNodes: VisualStackNode[] = [
-  {
-    id: 'node-client',
-    label: 'Client Web & Mobile',
-    subtext: 'Frontend Gateway',
-    badge: 'HTTPS / WSS',
-    iconUrl: 'https://api.iconify.design/logos/react.svg',
-    color: '#0284c7',
-    x: 80,
-    y: 220,
-    width: 190,
-    height: 90
-  },
-  {
-    id: 'node-api',
-    label: 'API Orchestrator',
-    subtext: 'Core Application Service',
-    badge: 'Node / Go REST',
-    iconUrl: 'https://api.iconify.design/logos/nodejs-icon.svg',
-    color: '#16a34a',
-    x: 360,
-    y: 220,
-    width: 200,
-    height: 90
-  },
-  {
-    id: 'node-broker',
-    label: 'Event Streaming Broker',
-    subtext: 'High-Throughput Bus',
-    badge: 'Kafka / MQTT',
-    iconUrl: 'https://api.iconify.design/logos/kafka.svg',
-    color: '#d97706',
-    x: 650,
-    y: 110,
-    width: 200,
-    height: 90
-  },
-  {
-    id: 'node-db',
-    label: 'Primary Database',
-    subtext: 'Relational & Analytical',
-    badge: 'PostgreSQL HA',
-    iconUrl: 'https://api.iconify.design/logos/postgresql.svg',
-    color: '#0284c7',
-    x: 650,
-    y: 330,
-    width: 200,
-    height: 90
-  },
-  {
-    id: 'node-worker',
-    label: 'AI & Inference Worker',
-    subtext: 'Async Pipeline Runner',
-    badge: 'Python / PyTorch',
-    iconUrl: 'https://api.iconify.design/logos/python.svg',
-    color: '#9333ea',
-    x: 940,
-    y: 110,
-    width: 200,
-    height: 90
-  }
-];
-
-const initialConnectors: VisualStackConnector[] = [
-  { id: 'conn-1', from: 'node-client', to: 'node-api', label: 'REST / TLS', color: '#0284c7' },
-  { id: 'conn-2', from: 'node-api', to: 'node-broker', label: 'Produce Event', color: '#d97706' },
-  { id: 'conn-3', from: 'node-api', to: 'node-db', label: 'Read / Write', color: '#0284c7', dashed: true },
-  { id: 'conn-4', from: 'node-broker', to: 'node-worker', label: 'Event Trigger', color: '#9333ea' }
-];
-
 export const Architecture2D: React.FC<Architecture2DProps> = ({
   theme = 'light',
   onToggleTheme,
@@ -92,8 +22,8 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
   connectors: propConnectors,
   onChange
 }) => {
-  const [nodes, setNodes] = useState<VisualStackNode[]>(propNodes || initialNodes);
-  const [connectors, setConnectors] = useState<VisualStackConnector[]>(propConnectors || initialConnectors);
+  const [nodes, setNodes] = useState<VisualStackNode[]>(propNodes || []);
+  const [connectors, setConnectors] = useState<VisualStackConnector[]>(propConnectors || []);
 
   // Viewport Pan / Zoom
   const [scale, setScale] = useState(0.9);
