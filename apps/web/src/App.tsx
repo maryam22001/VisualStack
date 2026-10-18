@@ -20,6 +20,7 @@ import { useDesigns } from './hooks/useDesigns';
 import { errorMessage } from './api/client';
 import { AuthScreens, type AuthScreenType } from './pages/AuthScreens';
 import type { VisualStackProject } from './types/project';
+import './App.css';
 
 // Safely resolve Isoflow component export across Vite ESM/CJS boundaries
 const getIsoflowComponent = (): ComponentType<Record<string, unknown>> => {
@@ -87,6 +88,7 @@ export default function App() {
   const [currentDesignId, setCurrentDesignId] = useState<string | null>(null);
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
 
   // When the signed-in identity changes (sign-out, expired session, a different user) reset
   // everything tied to the previous one, so the next session never inherits an open modal or
@@ -337,9 +339,10 @@ export default function App() {
 
   return (
     <div
+      className="vs-app"
       style={{
-        width: '100vw',
-        height: '100vh',
+        width: '100%',
+        height: '100dvh',
         display: 'flex',
         flexDirection: 'column',
         background: isDark ? '#0f172a' : '#f8fafc',
@@ -349,6 +352,7 @@ export default function App() {
     >
       {/* Top Application Header */}
       <header
+        className="vs-app-header"
         style={{
           height: '56px',
           background: isDark ? '#1e293b' : '#ffffff',
@@ -362,8 +366,13 @@ export default function App() {
         }}
       >
         {/* Left Section: Brand, Workspace & Editable Title */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <span style={{ fontSize: '18px', fontWeight: '800', color: '#0284c7' }}>
+        <div className="vs-app-header__brand" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <span className="vs-app-header__logo">
+            <svg viewBox="0 0 100 100" aria-hidden="true">
+              <polygon points="50 10, 90 32, 50 54, 10 32" fill="#38bdf8" />
+              <polygon points="10 32, 50 54, 50 92, 10 70" fill="#0284c7" />
+              <polygon points="90 32, 50 54, 50 92, 90 70" fill="#075985" />
+            </svg>
             VisualStack
           </span>
           <span style={{ color: isDark ? '#475569' : '#cbd5e1' }}>/</span>
@@ -426,7 +435,7 @@ export default function App() {
         </div>
 
         {/* Center Section: Tabs & Undo/Redo */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div className="vs-app-header__tabs" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <div
             style={{
               display: 'flex',
@@ -498,7 +507,7 @@ export default function App() {
         </div>
 
         {/* Right Section: Workspace, Save, Gallery & Exports */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <div className="vs-app-header__actions" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <input
             type="file"
             ref={fileInputRef}
@@ -557,51 +566,26 @@ export default function App() {
             🔗 Share
           </button>
 
-          <button
-            onClick={() => handleExportPng(false)}
-            style={{
-              background: '#10b981',
-              color: '#fff',
-              border: 'none',
-              padding: '6px 10px',
-              borderRadius: '6px',
-              fontSize: '12px',
-              fontWeight: '600',
-              cursor: 'pointer'
-            }}
-          >
-            PNG
-          </button>
-
-          <button
-            onClick={exportCurrentSvg}
-            style={{
-              background: 'transparent',
-              border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
-              color: isDark ? '#cbd5e1' : '#475569',
-              padding: '6px 8px',
-              borderRadius: '6px',
-              fontSize: '12px',
-              cursor: 'pointer'
-            }}
-          >
-            SVG
-          </button>
-
-          <button
-            onClick={() => exportProjectAsJSON(project)}
-            style={{
-              background: 'transparent',
-              border: `1px solid ${isDark ? '#334155' : '#cbd5e1'}`,
-              color: isDark ? '#cbd5e1' : '#475569',
-              padding: '6px 8px',
-              borderRadius: '6px',
-              fontSize: '12px',
-              cursor: 'pointer'
-            }}
-          >
-            JSON
-          </button>
+          <div className="vs-app-export">
+            <button
+              type="button"
+              className="vs-app-export__trigger"
+              aria-haspopup="menu"
+              aria-expanded={isExportMenuOpen}
+              onClick={() => setIsExportMenuOpen((open) => !open)}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 17v3h14v-3" /></svg>
+              Export
+              <svg className="vs-app-export__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5" /></svg>
+            </button>
+            {isExportMenuOpen && (
+              <div className="vs-app-export__menu" role="menu" aria-label="Export format">
+                <button role="menuitem" onClick={() => { setIsExportMenuOpen(false); handleExportPng(false); }}>PNG image</button>
+                <button role="menuitem" onClick={() => { setIsExportMenuOpen(false); exportCurrentSvg(); }}>SVG vector</button>
+                <button role="menuitem" onClick={() => { setIsExportMenuOpen(false); exportProjectAsJSON(project); }}>JSON project</button>
+              </div>
+            )}
+          </div>
 
           <button
             onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
@@ -639,7 +623,7 @@ export default function App() {
       </header>
 
       {/* Main Studio Workspace */}
-      <main style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+      <main className="vs-app-workspace" style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
         {project.activeTab === 'clean' && (
           <CleanArchitectureView
             theme={theme}
