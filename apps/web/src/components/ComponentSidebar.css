@@ -7,7 +7,7 @@
   position: absolute;
   z-index: 50;
   inset: 0 auto 0 0;
-  width: 210px;
+  width: min(var(--sidebar-width, 210px), 70vw);
   padding: 12px;
   overflow: visible;
   color: var(--sidebar-ink);
@@ -129,8 +129,8 @@
   background: #24364d;
 }
 .vs-component-sidebar__tile img {
-  width: 27px;
-  height: 27px;
+  width: 32px;
+  height: 32px;
   object-fit: contain;
 }
 .vs-component-sidebar__tile span {
@@ -167,8 +167,38 @@
   background: #111c2f;
 }
 
+.vs-component-sidebar__resize {
+  position: absolute;
+  z-index: 3;
+  inset: 0 -5px 0 auto;
+  width: 10px;
+  display: grid;
+  place-items: center;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.vs-component-sidebar__resize span {
+  width: 3px;
+  height: 44px;
+  border-radius: 4px;
+  background: #64748b;
+  opacity: .65;
+}
+
+.vs-component-sidebar__resize:hover span,
+.vs-component-sidebar__resize:focus-visible span {
+  background: #38bdf8;
+  opacity: 1;
+}
+
+.vs-component-sidebar__resize:focus-visible {
+  outline: 2px solid #38bdf8;
+  outline-offset: -2px;
+}
+
 @media (max-width: 680px) {
-  .vs-component-sidebar:not(.vs-component-sidebar--collapsed) {
-    width: min(210px, 65vw);
+  .vs-component-sidebar__resize {
+    width: 14px;
   }
 }

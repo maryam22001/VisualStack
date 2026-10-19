@@ -66,7 +66,7 @@ export default function App() {
   const [guestMode, setGuestMode] = useState(false);
 
   const [initialProject] = useState(() =>
-    synchronizeProjectViews(decodeProjectFromHash() || loadSavedProject())
+    synchronizeProjectViews(loadSavedProject())
   );
 
   const {
@@ -78,6 +78,28 @@ export default function App() {
     canUndo,
     canRedo
   } = useProjectHistory(initialProject);
+
+  const [isLoadingSharedProject, setIsLoadingSharedProject] = useState(() =>
+    window.location.hash.startsWith('#share=') || window.location.hash.startsWith('#sharez=')
+  );
+
+  useEffect(() => {
+    let active = true;
+    void decodeProjectFromHash()
+      .then((sharedProject) => {
+        if (active && sharedProject) setProjectDirect(synchronizeProjectViews(sharedProject));
+      })
+      .catch((err: unknown) => {
+        console.error('Could not load the shared architecture:', err);
+        if (active) alert(errorMessage(err, 'Could not load the shared architecture.'));
+      })
+      .finally(() => {
+        if (active) setIsLoadingSharedProject(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [setProjectDirect]);
 
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving'>('saved');
   const [theme, setTheme] = useState<'dark' | 'light'>('light');
@@ -155,6 +177,14 @@ export default function App() {
   }, [undo, redo]);
 
   // Wait for the first session check so a refresh never flashes the sign-in screen.
+  if (isLoadingSharedProject) {
+    return (
+      <div style={{ width: '100%', height: '100dvh', display: 'grid', placeItems: 'center', background: '#f8fafc', color: '#64748b', fontSize: 14 }}>
+        Opening shared architecture…
+      </div>
+    );
+  }
+
   if (authLoading) {
     return (
       <div style={{ width: '100vw', height: '100vh', display: 'grid', placeItems: 'center', background: '#f8fafc', color: '#64748b', fontSize: 14 }}>
@@ -182,11 +212,13 @@ export default function App() {
   };
 
   const handleCopyShareLink = () => {
-    const hash = encodeProjectToHash(project);
-    const fullUrl = `${window.location.origin}${window.location.pathname}${hash}`;
-    navigator.clipboard.writeText(fullUrl).then(() => {
-      alert('Shareable link copied to clipboard!');
-    });
+    void encodeProjectToHash(project)
+      .then((hash) => navigator.clipboard.writeText(`${window.location.origin}${window.location.pathname}${hash}`))
+      .then(() => alert('Short share link copied to clipboard!'))
+      .catch((err: unknown) => {
+        console.error('Could not create or copy the share link:', err);
+        alert(errorMessage(err, 'Could not create or copy the share link.'));
+      });
   };
 
   const handleExportPng = (copyToClipboard = false) => {
@@ -246,19 +278,17 @@ export default function App() {
       const existing = existingNodes.get(item.id);
       const position = viewItems.get(item.id)?.tile;
       const iconUrl = model.icons.find((icon) => icon.id === item.icon)?.url;
-      let subtext = item.description;
-      const specsSuffix = existing?.specs?.length ? ` · ${existing.specs.join(' · ')}` : '';
-      while (subtext && specsSuffix && subtext.endsWith(specsSuffix)) {
-        subtext = subtext.slice(0, -specsSuffix.length);
-      }
+      const subtext = existing?.specs?.includes(item.description ?? '')
+        ? existing.subtext
+        : item.description ?? existing?.subtext;
       return {
         ...existing,
         id: item.id,
         label: item.name,
         subtext,
         iconUrl: item.icon && item.icon !== 'icon-server' ? iconUrl || existing?.iconUrl : existing?.iconUrl || iconUrl,
-        x: position ? position.x * 120 : existing?.x ?? 0,
-        y: position ? position.y * 120 : existing?.y ?? 0,
+        x: position ? position.x * 200 : existing?.x ?? 0,
+        y: position ? position.y * 200 : existing?.y ?? 0,
         width: existing?.width ?? 190,
         height: existing?.height ?? 90
       };
@@ -650,7 +680,7 @@ export default function App() {
           />
         )}
         {project.activeTab === '3d' && (
-          <div style={{ width: '100%', height: '100%' }}>
+          <div className="vs-app-isoflow-stage" style={{ width: '100%', height: '100%' }}>
             <IsoflowComponent
               key="isoflow-tab"
               initialData={convertProjectToIsoflowData(project)}

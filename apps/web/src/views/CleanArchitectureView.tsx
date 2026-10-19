@@ -79,12 +79,18 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
   const [internalClusters, setInternalClusters] = useState<VisualStackCluster[]>([]);
   const [internalNodes, setInternalNodes] = useState<VisualStackNode[]>([]);
   const [internalConnectors, setInternalConnectors] = useState<VisualStackConnector[]>([]);
-  const [sidebarExpanded, setSidebarExpanded] = useState(true);
+  const [sidebarExpanded, setSidebarExpanded] = useState(() => window.innerWidth > 680);
+  const [sidebarWidth, setSidebarWidth] = useState(210);
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
 
   const clusters = propClusters ?? internalClusters;
   const nodes = propNodes ?? internalNodes;
   const connectors = propConnectors ?? internalConnectors;
-  const sidebarOffset = sidebarExpanded ? 210 : 42;
+  const sidebarOffset = viewportWidth <= 680
+    ? 0
+    : sidebarExpanded
+      ? Math.min(sidebarWidth, viewportWidth * 0.7)
+      : 42;
 
   const notifyChange = useCallback((
     nextClusters = clusters,
@@ -142,6 +148,12 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
 
   const containerRef = useRef<HTMLDivElement>(null);
   const isDark = theme === 'dark';
+
+  useEffect(() => {
+    const updateViewportWidth = () => setViewportWidth(window.innerWidth);
+    window.addEventListener('resize', updateViewportWidth);
+    return () => window.removeEventListener('resize', updateViewportWidth);
+  }, []);
 
   // Keyboard shortcut listener (Escape & Delete / Backspace)
   useEffect(() => {
@@ -308,10 +320,10 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
     window.addEventListener('pointercancel', finishBend);
   };
 
-  const getNodeCenter = (id: string) => {
+  const getNodePort = (id: string, side: 'input' | 'output') => {
     const n = nodes.find((node) => node.id === id);
     if (!n) return { x: 0, y: 0 };
-    return { x: n.x + n.width / 2, y: n.y + n.height / 2 };
+    return { x: n.x + (side === 'output' ? n.width : 0), y: n.y + 24 };
   };
 
   const handleAddCluster = () => {
@@ -338,6 +350,9 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
       id,
       label: component?.name ?? 'new-service',
       subtext: component?.category ?? 'Service Module',
+      badge: component?.category,
+      specs: component?.technicalDetails,
+      color: component?.color ?? '#0284c7',
       iconUrl: component?.iconUrl ?? 'https://api.iconify.design/logos/nginx.svg',
       x: 450 + nodes.length * 24,
       y: 250 + nodes.length * 24,
@@ -415,7 +430,10 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
         theme={theme}
         onAddNode={handleAddNode}
         onAddEnclosure={handleAddCluster}
+        expanded={sidebarExpanded}
         onExpandedChange={setSidebarExpanded}
+        width={sidebarWidth}
+        onWidthChange={setSidebarWidth}
       />
       {/* Top Floating Control Bar */}
       <div
@@ -458,10 +476,11 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
 
       {/* Floating Zoom HUD */}
       <div
+        className="vs-clean-zoom-controls"
         style={{
           position: 'absolute',
-          bottom: 24,
-          right: 24,
+          bottom: 20,
+          right: 20,
           background: isDark ? 'rgba(30, 41, 59, 0.9)' : 'rgba(255, 255, 255, 0.95)',
           border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
           borderRadius: '8px',
@@ -531,7 +550,7 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
             fontWeight: 'bold'
           }}
         >
-          Reset View
+          Reset
         </button>
       </div>
 
@@ -623,8 +642,8 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
         {/* 2. Orthogonal Connectors */}
         {connectors.map((line, index) => {
           const isSelected = selectedId === line.id;
-          const from = getNodeCenter(line.from);
-          const to = getNodeCenter(line.to);
+          const from = getNodePort(line.from, 'output');
+          const to = getNodePort(line.to, 'input');
           const bend = line.bend ?? getDefaultConnectorBend(from, to, index);
           const labelPoint = bend;
           const labelWidth = Math.min(280, Math.max(48, (line.label?.length ?? 0) * 6.4 + 16));
@@ -723,8 +742,8 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
         {/* Temporary Wire Drag Line */}
         {connectingFrom && (
           <line
-            x1={getNodeCenter(connectingFrom).x}
-            y1={getNodeCenter(connectingFrom).y}
+            x1={getNodePort(connectingFrom, 'output').x}
+            y1={getNodePort(connectingFrom, 'output').y}
             x2={mousePos.x}
             y2={mousePos.y}
             stroke="#0284c7"
@@ -777,9 +796,9 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
 
               <SafeSvgIcon
                 url={node.iconUrl}
-                x={(node.width - 44) / 2}
+                x={(node.width - 50) / 2}
                 y={4}
-                size={44}
+                size={50}
                 fallbackLabel={node.label || 'S'}
                 color="#0284c7"
               />
@@ -822,7 +841,7 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
               ))}
 
               <circle
-                cx={node.width + 4}
+                cx={0}
                 cy={24}
                 r="6"
                 fill={connectingFrom === node.id ? '#ef4444' : '#0284c7'}
@@ -830,7 +849,21 @@ export const CleanArchitectureView: React.FC<CleanArchitectureProps> = ({
                 strokeWidth="1.5"
                 style={{ cursor: 'pointer' }}
                 onClick={(e) => handlePortClick(e, node.id)}
-              />
+              >
+                <title>Input port</title>
+              </circle>
+              <circle
+                cx={node.width}
+                cy={24}
+                r="6"
+                fill={connectingFrom === node.id ? '#ef4444' : '#0284c7'}
+                stroke="#ffffff"
+                strokeWidth="1.5"
+                style={{ cursor: 'pointer' }}
+                onClick={(e) => handlePortClick(e, node.id)}
+              >
+                <title>Output port</title>
+              </circle>
             </g>
           );
         })}

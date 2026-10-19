@@ -34,12 +34,22 @@ body {
 
 .vs-app-header {
   min-width: 0;
+  gap: 10px 14px;
+  box-shadow: 0 2px 12px rgba(15, 23, 42, .06);
 }
 
 .vs-app-header__brand,
 .vs-app-header__tabs,
 .vs-app-header__actions {
   min-width: 0;
+}
+
+.vs-app-isoflow-stage div:has(> div > .MuiCard-root button[aria-label="Zoom out"]) {
+  position: fixed !important;
+  top: auto !important;
+  right: 20px !important;
+  bottom: 20px !important;
+  left: auto !important;
 }
 
 .vs-app-header__logo {
@@ -513,6 +523,15 @@ body {
 }
 
 @media (max-width: 680px) {
+  .vs-app-isoflow-stage div:has(> div > .MuiCard-root button[aria-label="Zoom out"]) {
+    bottom: 84px !important;
+  }
+
+  .vs-detailed-zoom-controls,
+  .vs-clean-zoom-controls {
+    bottom: 84px !important;
+  }
+
   .vs-app-header__brand {
     gap: 6px !important;
   }
@@ -537,6 +556,51 @@ body {
     width: 100%;
     overflow-x: auto;
     padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  .vs-app-header__tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .vs-app-header__brand {
+    display: grid !important;
+    grid-template-columns: max-content max-content minmax(0, 1fr);
+    gap: 5px 8px !important;
+    align-items: center;
+    overflow: visible;
+  }
+
+  .vs-app-header__brand > span:nth-child(2) {
+    display: none;
+  }
+
+  .vs-app-header__brand > span:nth-child(3) {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .vs-app-header__brand > select {
+    grid-column: 3;
+    grid-row: 1;
+    max-width: 100%;
+  }
+
+  .vs-app-header__brand > input {
+    grid-column: 1 / 3;
+    grid-row: 2;
+    flex: initial;
+    width: 100%;
+    max-width: none !important;
+  }
+
+  .vs-app-header__brand > input + span {
+    grid-column: 3;
+    grid-row: 2;
+    white-space: nowrap;
   }
 
   .vs-app-header__tabs > div:first-child {
