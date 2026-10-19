@@ -7,6 +7,7 @@ body,
 #root {
   width: 100%;
   height: 100%;
+  height: 100dvh;
   min-width: 0;
   min-height: 0;
   margin: 0;
@@ -18,6 +19,7 @@ body {
 
 #root {
   max-width: none;
+  margin: 0;
   display: block;
   border: 0;
   text-align: left;
@@ -137,13 +139,15 @@ body {
   z-index: 300;
   display: grid;
   place-items: center;
-  padding: 20px;
+  overflow: auto;
+  padding: 16px;
   background: rgba(15, 23, 42, .58);
 }
 
 .vs-json-design {
   width: min(680px, 100%);
-  max-height: min(760px, 100%);
+  max-height: min(760px, calc(100dvh - 32px));
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -226,6 +230,80 @@ body {
   box-shadow: 0 1px 3px rgba(15, 23, 42, .12);
 }
 
+.vs-json-design__guide {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.vs-json-design__template-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: rgba(148, 163, 184, .08);
+}
+
+.vs-json-design__template-action > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.vs-json-design__template-action strong {
+  font-size: 12px;
+}
+
+.vs-json-design__template-action span {
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.vs-json-design__template-action button {
+  min-height: 32px;
+  flex: none;
+  padding: 0 10px;
+  border: 1px solid #0284c7;
+  border-radius: 6px;
+  color: #0369a1;
+  background: transparent;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.vs-json-design__guide details {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+}
+
+.vs-json-design__guide summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.vs-json-design__guide ul {
+  display: grid;
+  gap: 5px;
+  max-height: 120px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding-left: 20px;
+  line-height: 1.4;
+}
+
+.vs-json-design__guide code {
+  display: inline;
+  padding: 1px 3px;
+  font-size: 11px;
+}
+
 .vs-json-design__upload {
   display: flex;
   align-items: center;
@@ -255,9 +333,12 @@ body {
 
 .vs-json-design textarea {
   width: 100%;
-  min-height: 240px;
+  min-height: 140px;
+  max-height: 45dvh;
+  flex: 1 1 240px;
   resize: vertical;
   padding: 13px;
+  overflow: auto;
   border: 1px solid;
   border-radius: 8px;
   font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
@@ -277,6 +358,12 @@ body {
 
 .vs-json-design__footer {
   align-items: center;
+  position: sticky;
+  bottom: -1px;
+  z-index: 1;
+  flex: none;
+  padding: 8px 0 0;
+  background: inherit;
 }
 
 .vs-json-design__footer > span {
@@ -310,17 +397,91 @@ body {
 }
 
 @media (max-width: 560px) {
-  .vs-json-design {
-    padding: 18px;
+  .vs-json-design__backdrop {
+    padding: 12px;
   }
 
+  .vs-json-design {
+    max-height: calc(100dvh - 24px);
+    gap: 10px;
+    padding: 14px;
+  }
+
+  .vs-json-design__header,
+  .vs-json-design__modes,
+  .vs-json-design__upload,
+  .vs-json-design__label,
+  .vs-json-design__error,
+  .vs-json-design__guide,
   .vs-json-design__footer {
-    align-items: stretch;
-    flex-direction: column;
+    flex: none;
+  }
+
+  .vs-json-design__header p,
+  .vs-json-design__template-action span {
+    display: none;
+  }
+
+  .vs-json-design__template-action {
+    padding: 7px 9px;
+  }
+
+  .vs-json-design__template-action > div {
+    display: block;
   }
 
   .vs-json-design__footer > div {
     justify-content: flex-end;
+  }
+
+  .vs-json-design textarea {
+    height: clamp(100px, 24dvh, 180px);
+    min-height: 100px;
+    max-height: none;
+    flex: 0 1 auto;
+  }
+
+  .vs-json-design__footer > span {
+    display: none;
+  }
+
+  .vs-json-design__guide details[open] ul {
+    max-height: 70px;
+  }
+
+  .vs-json-design__template-action {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (max-height: 620px) {
+  .vs-json-design {
+    gap: 10px;
+    padding: 14px;
+  }
+
+  .vs-json-design__header,
+  .vs-json-design__modes,
+  .vs-json-design__upload,
+  .vs-json-design__label,
+  .vs-json-design__error,
+  .vs-json-design__guide,
+  .vs-json-design__footer {
+    flex: none;
+  }
+
+  .vs-json-design textarea {
+    height: clamp(80px, 18dvh, 140px);
+    min-height: 80px;
+    max-height: none;
+    flex: 0 1 auto;
+  }
+
+  .vs-json-design__header p,
+  .vs-json-design__template-action span,
+  .vs-json-design__footer > span {
+    display: none;
   }
 }
 

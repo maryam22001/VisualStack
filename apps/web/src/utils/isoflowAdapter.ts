@@ -35,7 +35,7 @@ export function convertProjectToIsoflowData(project: VisualStackProject) {
   const items = rawNodes.map((n, idx) => ({
     id: String(n.id || `node-${idx}`),
     name: String(n.label || `Node ${idx + 1}`),
-    description: n.subtext,
+    description: [n.subtext, ...(n.specs ?? [])].filter(Boolean).join('·'),
     icon: 'icon-server'
   }));
 
