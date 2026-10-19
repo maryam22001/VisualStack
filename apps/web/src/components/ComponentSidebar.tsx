@@ -25,6 +25,10 @@ interface ComponentSidebarProps {
   offsetTop?: number;
   onAddNode: (component: ArchitectureComponent) => void;
   onAddEnclosure?: () => void;
+  onAddServiceNode?: () => void;
+  enclosureLabel?: string;
+  serviceNodeLabel?: string;
+  componentsTitle?: string;
   expanded: boolean;
   onExpandedChange: (expanded: boolean) => void;
   width?: number;
@@ -36,6 +40,10 @@ export const ComponentSidebar: React.FC<ComponentSidebarProps> = ({
   offsetTop = 0,
   onAddNode,
   onAddEnclosure,
+  onAddServiceNode,
+  enclosureLabel = 'Add enclosure',
+  serviceNodeLabel = 'Add service node',
+  componentsTitle = 'Components',
   expanded,
   onExpandedChange,
   width = 210,
@@ -69,12 +77,18 @@ export const ComponentSidebar: React.FC<ComponentSidebarProps> = ({
               <h2>Layout &amp; Zones</h2>
               <button className="vs-component-sidebar__add" onClick={onAddEnclosure}>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-                Add enclosure
+                {enclosureLabel}
               </button>
             </section>
           )}
+          {onAddServiceNode && (
+            <button className="vs-component-sidebar__add vs-component-sidebar__add--service" onClick={onAddServiceNode}>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+              {serviceNodeLabel}
+            </button>
+          )}
           <section className="vs-component-sidebar__section">
-            <h2>{query ? 'Search results' : 'Components'}</h2>
+            <h2>{query ? 'Search results' : componentsTitle}</h2>
             {filtered.length ? (
               <div className="vs-component-sidebar__grid">
                 {filtered.map((item) => (
@@ -139,7 +153,7 @@ export const ComponentSidebar: React.FC<ComponentSidebarProps> = ({
                 event.preventDefault();
                 const direction = event.key === 'ArrowRight' ? 1 : -1;
                 const maxWidth = Math.min(420, window.innerWidth * 0.7);
-                onWidthChange(Math.min(maxWidth, Math.max(160, width + direction * 16)));
+                onWidthChange(Math.min(maxWidth, Math.max(180, width + direction * 16)));
               }}
             >
               <span />

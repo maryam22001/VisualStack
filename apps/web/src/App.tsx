@@ -13,9 +13,10 @@ import {
   serializeSvgForExport
 } from './utils/storage';
 import { useProjectHistory } from './hooks/useProjectHistory';
-import { convertProjectToIsoflowData } from './utils/isoflowAdapter';
+import { convertProjectToIsoflowData, ISOFLOW_TILE_SCALE } from './utils/isoflowAdapter';
 import { DesignGalleryModal } from './components/DesignGalleryModal';
 import { JsonToDesignModal } from './components/JsonToDesignModal';
+import { ComponentSidebar, type ArchitectureComponent } from './components/ComponentSidebar';
 import { useAuth } from './hooks/useAuth';
 import { useDesigns } from './hooks/useDesigns';
 import { errorMessage } from './api/client';
@@ -64,6 +65,16 @@ export default function App() {
   // Set by "Continue without an account" on the sign-in screen.
   // Delete this state (and the guest button in AuthScreens) to make login mandatory.
   const [guestMode, setGuestMode] = useState(false);
+  const [is3DSidebarExpanded, setIs3DSidebarExpanded] = useState(() => window.innerWidth > 680);
+  const [is3DSidebarWidth, setIs3DSidebarWidth] = useState(210);
+
+  useEffect(() => {
+    const collapseSidebarOnSmallScreens = () => {
+      if (window.innerWidth <= 680) setIs3DSidebarExpanded(false);
+    };
+    window.addEventListener('resize', collapseSidebarOnSmallScreens);
+    return () => window.removeEventListener('resize', collapseSidebarOnSmallScreens);
+  }, []);
 
   const [initialProject] = useState(() =>
     synchronizeProjectViews(loadSavedProject())
@@ -211,6 +222,63 @@ export default function App() {
     updateProject((prev) => ({ ...prev, title: newTitle }));
   };
 
+  const add3DNode = (component?: ArchitectureComponent) => {
+    updateProject((previous) => {
+      const nodes = previous.cleanView.nodes.length
+        ? previous.cleanView.nodes
+        : previous.detailed2DView.nodes;
+      const index = nodes.length;
+      const targetCluster = previous.cleanView.clusters.at(-1);
+      const clusterNodeCount = targetCluster
+        ? nodes.filter((node) => node.clusterId === targetCluster.id).length
+        : 0;
+      const node = {
+        id: `node-${window.crypto?.randomUUID ? window.crypto.randomUUID().slice(0, 8) : Date.now().toString(36)}`,
+        clusterId: targetCluster?.id,
+        label: component?.name ?? 'New Service',
+        subtext: component?.category ?? 'Service Module',
+        badge: component?.category ?? 'HTTP / REST',
+        specs: component?.technicalDetails,
+        iconUrl: component?.iconUrl ?? 'https://api.iconify.design/lucide/box.svg',
+        color: component?.color ?? '#0284c7',
+        x: targetCluster
+          ? targetCluster.x + 60 + (clusterNodeCount % 2) * 140
+          : 160 + (index % 3) * 460,
+        y: targetCluster
+          ? targetCluster.y + 70 + Math.floor(clusterNodeCount / 2) * 160
+          : 180 + Math.floor(index / 3) * 220,
+        width: 68,
+        height: 64
+      };
+      const nextNodes = [...nodes, node];
+      return {
+        ...previous,
+        cleanView: { ...previous.cleanView, nodes: nextNodes },
+        detailed2DView: { ...previous.detailed2DView, nodes: nextNodes }
+      };
+    });
+  };
+
+  const add3DEnclosure = () => {
+    updateProject((previous) => {
+      const index = previous.cleanView.clusters.length;
+      const cluster = {
+        id: `zone-${window.crypto?.randomUUID ? window.crypto.randomUUID().slice(0, 8) : Date.now().toString(36)}`,
+        title: index === 0 ? 'Edge & Ingestion Zone' : `Service Cluster ${index + 1}`,
+        x: 80 + (index % 2) * 360,
+        y: 100 + Math.floor(index / 2) * 320,
+        width: 320,
+        height: 260,
+        color: index % 2 ? 'rgba(16, 185, 129, 0.12)' : 'rgba(2, 132, 199, 0.12)',
+        borderColor: index % 2 ? '#10b981' : '#0284c7'
+      };
+      return {
+        ...previous,
+        cleanView: { ...previous.cleanView, clusters: [...previous.cleanView.clusters, cluster] }
+      };
+    });
+  };
+
   const handleCopyShareLink = () => {
     void encodeProjectToHash(project)
       .then((hash) => navigator.clipboard.writeText(`${window.location.origin}${window.location.pathname}${hash}`))
@@ -287,8 +355,8 @@ export default function App() {
         label: item.name,
         subtext,
         iconUrl: item.icon && item.icon !== 'icon-server' ? iconUrl || existing?.iconUrl : existing?.iconUrl || iconUrl,
-        x: position ? position.x * 200 : existing?.x ?? 0,
-        y: position ? position.y * 200 : existing?.y ?? 0,
+        x: position ? position.x * ISOFLOW_TILE_SCALE : existing?.x ?? 0,
+        y: position ? position.y * ISOFLOW_TILE_SCALE : existing?.y ?? 0,
         width: existing?.width ?? 190,
         height: existing?.height ?? 90
       };
@@ -680,15 +748,37 @@ export default function App() {
           />
         )}
         {project.activeTab === '3d' && (
-          <div className="vs-app-isoflow-stage" style={{ width: '100%', height: '100%' }}>
-            <IsoflowComponent
-              key="isoflow-tab"
-              initialData={convertProjectToIsoflowData(project)}
-              editorMode="EDITABLE"
-              width="100%"
-              height="100%"
-              onModelUpdated={handleIsoflowModelUpdated}
+          <div className="vs-app-3d-workspace">
+            <ComponentSidebar
+              theme={theme}
+              expanded={is3DSidebarExpanded}
+              onExpandedChange={setIs3DSidebarExpanded}
+              width={is3DSidebarWidth}
+              onWidthChange={setIs3DSidebarWidth}
+              onAddNode={(component) => add3DNode(component)}
+              onAddEnclosure={add3DEnclosure}
+              onAddServiceNode={() => add3DNode()}
+              enclosureLabel="Add enclosure pod"
+              serviceNodeLabel="Add service node"
+              componentsTitle="Common services"
             />
+            <div
+              className="vs-app-isoflow-stage"
+              style={{
+                width: `calc(100% - ${is3DSidebarExpanded ? is3DSidebarWidth : 42}px)`,
+                height: '100%',
+                marginLeft: is3DSidebarExpanded ? is3DSidebarWidth : 42
+              }}
+            >
+              <IsoflowComponent
+                key={`isoflow-${project.cleanView.nodes.length}-${project.cleanView.connectors.length}-${project.cleanView.clusters.length}`}
+                initialData={convertProjectToIsoflowData(project)}
+                editorMode="EDITABLE"
+                width="100%"
+                height="100%"
+                onModelUpdated={handleIsoflowModelUpdated}
+              />
+            </div>
           </div>
         )}
       </main>

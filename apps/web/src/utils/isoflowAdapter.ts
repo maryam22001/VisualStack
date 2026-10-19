@@ -14,9 +14,18 @@ export const isoflowColors = [
   { id: 'c-gray', value: '#64748b' }
 ];
 
+export const ISOFLOW_TILE_SCALE = 100;
+
 function shortDescription(description: string): string {
   const trimmed = description.trim();
   return trimmed.length > 64 ? `${trimmed.slice(0, 61).trimEnd()}…` : trimmed;
+}
+
+function platformColor(color: string): string {
+  const match = /^#([\da-f]{6})$/i.exec(color);
+  if (!match) return '#dbeafe';
+  const channels = [0, 2, 4].map((offset) => parseInt(match[1].slice(offset, offset + 2), 16));
+  return `#${channels.map((channel) => Math.round(channel + (255 - channel) * 0.82).toString(16).padStart(2, '0')).join('')}`;
 }
 
 export function convertProjectToIsoflowData(project: VisualStackProject) {
@@ -54,22 +63,11 @@ export function convertProjectToIsoflowData(project: VisualStackProject) {
   });
   const validIdSet = new Set(items.map((item) => item.id));
 
-  const allX = [
-    ...rawNodes.map((node) => node.x),
-    ...rawClusters.flatMap((cluster) => [cluster.x, cluster.x + cluster.width])
-  ];
-  const allY = [
-    ...rawNodes.map((node) => node.y),
-    ...rawClusters.flatMap((cluster) => [cluster.y, cluster.y + cluster.height])
-  ];
-  const originX = allX.length ? Math.min(...allX) : 0;
-  const originY = allY.length ? Math.min(...allY) : 0;
-  const tileScale = 200;
   const occupiedTiles = new Set<string>();
   const sceneItems = items.map((item, index) => {
     const node = rawNodes[index];
-    const baseX = Math.round((node.x - originX) / tileScale);
-    const baseY = Math.round((node.y - originY) / tileScale);
+    const baseX = Math.round(node.x / ISOFLOW_TILE_SCALE);
+    const baseY = Math.round(node.y / ISOFLOW_TILE_SCALE);
     let tileX = baseX;
     let tileY = baseY;
     while (occupiedTiles.has(`${tileX},${tileY}`)) {
@@ -110,7 +108,7 @@ export function convertProjectToIsoflowData(project: VisualStackProject) {
 
   const rectangles = rawClusters.map((cluster) => ({
     cluster,
-    color: cluster.borderColor || '#0284c7'
+    color: platformColor(cluster.borderColor || '#0284c7')
   }));
   const colors = [...isoflowColors];
   const colorIds = new Map(colors.map((color) => [color.value.toLowerCase(), color.id]));
@@ -124,12 +122,12 @@ export function convertProjectToIsoflowData(project: VisualStackProject) {
     return {
       id: String(cluster.id),
       from: {
-        x: Math.round((cluster.x - originX) / tileScale),
-        y: Math.round((cluster.y - originY) / tileScale)
+        x: Math.floor(cluster.x / ISOFLOW_TILE_SCALE) - 1,
+        y: Math.floor(cluster.y / ISOFLOW_TILE_SCALE) - 1
       },
       to: {
-        x: Math.round((cluster.x + cluster.width - originX) / tileScale),
-        y: Math.round((cluster.y + cluster.height - originY) / tileScale)
+        x: Math.ceil((cluster.x + cluster.width) / ISOFLOW_TILE_SCALE) + 1,
+        y: Math.ceil((cluster.y + cluster.height) / ISOFLOW_TILE_SCALE) + 1
       },
       color: colorId
     };
