@@ -17,6 +17,21 @@ const readString = (value: unknown): string | undefined =>
 const readNumber = (value: unknown, fallback: number): number =>
   typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 
+const readSpecs = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((spec) => {
+    if (typeof spec === 'string' && spec.trim()) return [spec.trim()];
+    if (isObject(spec)) {
+      const label = readString(spec.label) ?? readString(spec.name) ?? readString(spec.key);
+      const detail = readString(spec.value) ?? readString(spec.description);
+      if (label && detail) return [`${label}: ${detail}`];
+      const text = label ?? detail;
+      if (text) return [text];
+    }
+    return [];
+  });
+};
+
 function parseVisualStackProject(value: JsonObject): VisualStackProject | null {
   const hasProjectView = 'cleanView' in value || 'detailed2DView' in value;
   if (!hasProjectView) return null;
@@ -109,10 +124,21 @@ export function parseJsonToDesign(value: unknown): VisualStackProject {
       id,
       ...(clusterId ? { clusterId } : {}),
       label: readString(rawNode.label) ?? readString(rawNode.name) ?? readString(rawNode.title) ?? `Component ${index + 1}`,
-      subtext: readString(rawNode.subtext) ?? readString(rawNode.description) ?? readString(rawNode.type),
-      badge: readString(rawNode.badge) ?? readString(rawNode.category),
+      subtext: readString(rawNode.subtext) ?? readString(rawNode.description) ?? readString(rawNode.purpose),
+      badge: readString(rawNode.badge) ?? readString(rawNode.category) ?? readString(rawNode.type),
       iconUrl: readString(rawNode.iconUrl) ?? readString(rawNode.icon),
       color: readString(rawNode.color) ?? '#0284c7',
+      specs: [
+        ...readSpecs(rawNode.specs ?? rawNode.details ?? rawNode.attributes),
+        ...([
+          ['Technology', rawNode.technology],
+          ['Version', rawNode.version],
+          ['Protocol', rawNode.protocol]
+        ] as const).flatMap(([name, detail]) => {
+          const value = readString(detail);
+          return value ? [`${name}: ${value}`] : [];
+        })
+      ],
       x: readNumber(rawNode.x, 100 + column * 230),
       y: readNumber(rawNode.y, 120 + row * 150),
       width: Math.max(80, readNumber(rawNode.width, 190)),
@@ -126,20 +152,49 @@ export function parseJsonToDesign(value: unknown): VisualStackProject {
     throw new Error('Enclosure ids must be unique.');
   }
 
+  const nodeIdsByReference = new Map<string, Set<string>>();
+  rawNodes.forEach((rawNode, index) => {
+    if (!isObject(rawNode)) return;
+    const nodeId = nodes[index].id;
+    const references = [
+      rawNode.id,
+      rawNode.key,
+      rawNode.name,
+      rawNode.label,
+      rawNode.title
+    ].map(readString).filter((reference): reference is string => reference !== undefined);
+    for (const reference of references) {
+      const normalized = reference.toLowerCase();
+      const matches = nodeIdsByReference.get(normalized) ?? new Set<string>();
+      matches.add(nodeId);
+      nodeIdsByReference.set(normalized, matches);
+    }
+  });
+
+  const resolveNodeReference = (reference: string, connectionIndex: number, endpoint: string): string => {
+    if (nodeIds.has(reference)) return reference;
+    const matches = nodeIdsByReference.get(reference.toLowerCase());
+    const match = matches?.values().next();
+    if (matches?.size === 1 && match?.value) return match.value;
+    if (matches && matches.size > 1) {
+      throw new Error(`Connection ${connectionIndex} has an ambiguous ${endpoint} reference "${reference}". Use a unique component id.`);
+    }
+    throw new Error(`Connection ${connectionIndex} references a component "${reference}" that does not exist.`);
+  };
+
   const rawConnectors = firstArray(value, ['connectors', 'connections', 'edges', 'links']) ?? [];
   const connectors: VisualStackConnector[] = rawConnectors.map((rawConnector, index) => {
     if (!isObject(rawConnector)) throw new Error(`Connection ${index + 1} must be an object.`);
     const from = readString(rawConnector.from) ?? readString(rawConnector.source);
     const to = readString(rawConnector.to) ?? readString(rawConnector.target);
     if (!from || !to) throw new Error(`Connection ${index + 1} needs "from"/"to" or "source"/"target" component ids.`);
-    if (!nodeIds.has(from) || !nodeIds.has(to)) {
-      throw new Error(`Connection ${index + 1} references a component id that does not exist.`);
-    }
+    const resolvedFrom = resolveNodeReference(from, index + 1, 'source');
+    const resolvedTo = resolveNodeReference(to, index + 1, 'target');
     const rawDashed = rawConnector.dashed ?? String(rawConnector.style).toLowerCase() === 'dotted';
     return {
       id: readString(rawConnector.id) ?? `connection-${index + 1}`,
-      from,
-      to,
+      from: resolvedFrom,
+      to: resolvedTo,
       label: readString(rawConnector.label) ?? readString(rawConnector.name) ?? readString(rawConnector.description),
       color: readString(rawConnector.color) ?? '#0284c7',
       dashed: typeof rawDashed === 'boolean' ? rawDashed : String(rawConnector.style).toLowerCase() === 'dotted'
@@ -149,7 +204,7 @@ export function parseJsonToDesign(value: unknown): VisualStackProject {
     throw new Error('Connection ids must be unique.');
   }
 
-  const title = readString(value.title) ?? readString(value.name) ?? 'Imported Architecture';
+  const title = readString(value.title) ?? readString(value.name) ?? readString(value.architecture) ?? 'Imported Architecture';
   return {
     ...defaultProject,
     id: `proj-${window.crypto?.randomUUID ? window.crypto.randomUUID() : Date.now().toString(36)}`,

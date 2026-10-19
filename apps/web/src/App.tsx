@@ -246,11 +246,16 @@ export default function App() {
       const existing = existingNodes.get(item.id);
       const position = viewItems.get(item.id)?.tile;
       const iconUrl = model.icons.find((icon) => icon.id === item.icon)?.url;
+      let subtext = item.description;
+      const specsSuffix = existing?.specs?.length ? ` · ${existing.specs.join(' · ')}` : '';
+      while (subtext && specsSuffix && subtext.endsWith(specsSuffix)) {
+        subtext = subtext.slice(0, -specsSuffix.length);
+      }
       return {
         ...existing,
         id: item.id,
         label: item.name,
-        subtext: item.description,
+        subtext,
         iconUrl: item.icon && item.icon !== 'icon-server' ? iconUrl || existing?.iconUrl : existing?.iconUrl || iconUrl,
         x: position ? position.x * 120 : existing?.x ?? 0,
         y: position ? position.y * 120 : existing?.y ?? 0,
