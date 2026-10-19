@@ -70,15 +70,17 @@ export function useProjectHistory(initialProject: VisualStackProject) {
     });
   }, []);
 
+  const setProjectDirect = useCallback((p: VisualStackProject) => {
+    setProjectInternal(p);
+    lastSnapshotRef.current = JSON.stringify(p);
+    setPast([]);
+    setFuture([]);
+  }, []);
+
   return {
     project,
     updateProject,
-    setProjectDirect: (p: VisualStackProject) => {
-      setProjectInternal(p);
-      lastSnapshotRef.current = JSON.stringify(p);
-      setPast([]);
-      setFuture([]);
-    },
+    setProjectDirect,
     undo,
     redo,
     canUndo: past.length > 0,

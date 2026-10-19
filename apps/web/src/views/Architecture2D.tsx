@@ -25,8 +25,14 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
 }) => {
   const [nodes, setNodes] = useState<VisualStackNode[]>(propNodes || []);
   const [connectors, setConnectors] = useState<VisualStackConnector[]>(propConnectors || []);
-  const [sidebarExpanded, setSidebarExpanded] = useState(true);
-  const sidebarOffset = sidebarExpanded ? 210 : 42;
+  const [sidebarExpanded, setSidebarExpanded] = useState(() => window.innerWidth > 680);
+  const [sidebarWidth, setSidebarWidth] = useState(210);
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
+  const sidebarOffset = viewportWidth <= 680
+    ? 0
+    : sidebarExpanded
+      ? Math.min(sidebarWidth, viewportWidth * 0.7)
+      : 42;
 
   // Viewport Pan / Zoom
   const [scale, setScale] = useState(0.9);
@@ -54,6 +60,12 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
 
   const containerRef = useRef<HTMLDivElement>(null);
   const isDark = theme === 'dark';
+
+  useEffect(() => {
+    const updateViewportWidth = () => setViewportWidth(window.innerWidth);
+    window.addEventListener('resize', updateViewportWidth);
+    return () => window.removeEventListener('resize', updateViewportWidth);
+  }, []);
 
   const notifyChange = useCallback((nextNodes = nodes, nextConnectors = connectors) => {
     onChange?.({ nodes: nextNodes, connectors: nextConnectors });
@@ -238,11 +250,11 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
     window.addEventListener('pointercancel', finishResize);
   };
 
-  const getNodeCenter = (id: string) => {
+  const getNodePort = (id: string, side: 'input' | 'output') => {
     const n = nodes.find((node) => node.id === id);
     if (!n) return { x: 0, y: 0 };
     const { width, height } = getCardSize(n);
-    return { x: n.x + width / 2, y: n.y + height / 2 };
+    return { x: n.x + (side === 'output' ? width : 0), y: n.y + height / 2 };
   };
 
   const handleAddNode = (component?: ArchitectureComponent) => {
@@ -251,7 +263,8 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
       id,
       label: component?.name ?? 'New Microservice',
       subtext: component?.category ?? 'Custom Component',
-      badge: component ? '' : 'TCP / RPC',
+      badge: component?.category ?? 'TCP / RPC',
+      specs: component?.technicalDetails,
       iconUrl: component?.iconUrl ?? 'https://api.iconify.design/lucide/box.svg',
       color: component?.color ?? '#0284c7',
       x: 350 + nodes.length * 24,
@@ -328,7 +341,10 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
       <ComponentSidebar
         theme={theme}
         onAddNode={handleAddNode}
+        expanded={sidebarExpanded}
         onExpandedChange={setSidebarExpanded}
+        width={sidebarWidth}
+        onWidthChange={setSidebarWidth}
       />
       {/* Action Bar */}
       <div
@@ -372,6 +388,7 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
 
       {/* Floating Zoom Controls */}
       <div
+        className="vs-detailed-zoom-controls"
         style={{
           position: 'absolute',
           bottom: 20,
@@ -450,8 +467,8 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
 
         {/* Connectors */}
         {connectors.map((conn, index) => {
-          const from = getNodeCenter(conn.from);
-          const to = getNodeCenter(conn.to);
+          const from = getNodePort(conn.from, 'output');
+          const to = getNodePort(conn.to, 'input');
           const bend = conn.bend ?? getDefaultConnectorBend(from, to, index);
           const labelPoint = bend;
           const labelWidth = Math.min(280, Math.max(48, (conn.label?.length ?? 0) * 6.4 + 16));
@@ -550,8 +567,8 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
         {/* Cable Drag Preview */}
         {connectingFrom && (
           <line
-            x1={getNodeCenter(connectingFrom).x}
-            y1={getNodeCenter(connectingFrom).y}
+            x1={getNodePort(connectingFrom, 'output').x}
+            y1={getNodePort(connectingFrom, 'output').y}
             x2={mousePos.x}
             y2={mousePos.y}
             stroke="#0284c7"
@@ -600,10 +617,10 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
             {node.iconUrl && node.iconUrl.trim() !== '' ? (
   <image
     href={node.iconUrl}
-    x="16"
-    y="18"
-    width="34"
-    height="34"
+    x="12"
+    y="12"
+    width="42"
+    height="42"
     preserveAspectRatio="xMidYMid meet"
     onError={(e) => {
       (e.currentTarget as SVGImageElement).style.display = 'none';
@@ -611,7 +628,7 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
   />
 ) : (
   <g>
-    <circle cx="33" cy="35" r="16" fill={node.color || '#0284c7'} opacity={0.15} />
+    <circle cx="33" cy="33" r="20" fill={node.color || '#0284c7'} opacity={0.15} />
     <text
       x="33"
       y="40"
@@ -678,6 +695,18 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
             ))}
 
             <circle
+              cx={0}
+              cy={cardHeight / 2}
+              r="6"
+              fill={connectingFrom === node.id ? '#ef4444' : '#0284c7'}
+              stroke="#ffffff"
+              strokeWidth="1.5"
+              style={{ cursor: 'pointer' }}
+              onClick={(e) => handleConnectPortClick(e, node.id)}
+            >
+              <title>Input port</title>
+            </circle>
+            <circle
               cx={cardWidth}
               cy={cardHeight / 2}
               r="6"
@@ -686,7 +715,9 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
               strokeWidth="1.5"
               style={{ cursor: 'pointer' }}
               onClick={(e) => handleConnectPortClick(e, node.id)}
-            />
+            >
+              <title>Output port</title>
+            </circle>
             {isSelected && (
               <g
                 transform={`translate(${cardWidth - 10}, ${cardHeight - 10})`}
@@ -700,7 +731,7 @@ export const Architecture2D: React.FC<Architecture2DProps> = ({
               </g>
             )}
             <g
-              transform={`translate(${cardWidth + 6 / scale}, ${cardHeight / 2 - 18 / scale}) scale(${1 / scale})`}
+              transform={`translate(${cardWidth - 28}, ${cardHeight / 2 - 18 / scale}) scale(${1 / scale})`}
               onPointerDown={(e) => startNodeResize(e, node, cardWidth, cardHeight, 'horizontal')}
               style={{ cursor: 'ew-resize' }}
               aria-label="Widen node"

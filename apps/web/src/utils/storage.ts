@@ -5,34 +5,62 @@ const STORAGE_KEY = 'visualstack_active_project';
 
 // --- URL State Sharing ---
 
-export function encodeProjectToHash(project: VisualStackProject): string {
-  try {
-    const jsonString = JSON.stringify(project);
-    // Base64 encode safe for UTF-8
-    const encoded = btoa(encodeURIComponent(jsonString));
-    return `#share=${encoded}`;
-  } catch (err) {
-    console.error('Failed to encode project to URL hash:', err);
-    return '';
+const encodeBase64Url = (bytes: Uint8Array): string => {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
   }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+};
+
+const decodeBase64Url = (value: string): Uint8Array => {
+  const base64 = value.replace(/-/g, '+').replace(/_/g, '/');
+  const binary = atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '='));
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+};
+
+export async function encodeProjectToHash(project: VisualStackProject): Promise<string> {
+  const json = JSON.stringify(project);
+  if (typeof CompressionStream === 'undefined') {
+    return `#share=${btoa(encodeURIComponent(json))}`;
+  }
+
+  const compressed = await new Response(
+    new Blob([json]).stream().pipeThrough(new CompressionStream('gzip'))
+  ).arrayBuffer();
+  return `#sharez=${encodeBase64Url(new Uint8Array(compressed))}`;
 }
 
-export function decodeProjectFromHash(): VisualStackProject | null {
-  try {
-    const hash = window.location.hash;
-    if (!hash.startsWith('#share=')) return null;
+export async function decodeProjectFromHash(): Promise<VisualStackProject | null> {
+  const hash = window.location.hash;
+  let json: string;
 
-    const base64Data = hash.replace('#share=', '');
-    const jsonString = decodeURIComponent(atob(base64Data));
-    const parsed = JSON.parse(jsonString);
-
-    if (parsed && typeof parsed === 'object' && (parsed.cleanView || parsed.detailed2DView)) {
-      return parsed as VisualStackProject;
+  if (hash.startsWith('#sharez=')) {
+    if (typeof DecompressionStream === 'undefined') {
+      throw new Error('This browser cannot open compressed architecture links. Try opening the link in an up-to-date browser.');
     }
-  } catch (err) {
-    console.error('Failed to parse project from URL hash:', err);
+    const compressed = decodeBase64Url(hash.slice('#sharez='.length));
+    const compressedBuffer = new ArrayBuffer(compressed.byteLength);
+    new Uint8Array(compressedBuffer).set(compressed);
+    json = await new Response(
+      new Blob([compressedBuffer]).stream().pipeThrough(new DecompressionStream('gzip'))
+    ).text();
+  } else if (hash.startsWith('#share=')) {
+    json = decodeURIComponent(atob(hash.slice('#share='.length)));
+  } else {
+    return null;
   }
-  return null;
+
+  const parsed: unknown = JSON.parse(json);
+  if (
+    parsed &&
+    typeof parsed === 'object' &&
+    ('cleanView' in parsed || 'detailed2DView' in parsed)
+  ) {
+    return parsed as VisualStackProject;
+  }
+  throw new Error('This shared link does not contain a valid VisualStack project.');
 }
 
 // --- High-Resolution PNG & Clipboard Export ---
